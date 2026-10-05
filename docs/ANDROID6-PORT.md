@@ -40,13 +40,19 @@ Upstream requires Android 9 (minSdk 28); wireless features still require Android
 Everything else (video decode capability probes, diagnostics export, per-app locale, USB receiver
 registration) already carried pre-Q/pre-R fallbacks upstream.
 
-## What still does not work on Android 6
+## What still does not work
 
-- Wireless (Wi-Fi Direct / local-only hotspot): requires Android 10+ by design.
+- Wireless (Wi-Fi Direct / local-only hotspot): requires Android 10+ by design. On Android 6 units
+  the supported wireless mode is the car's own hotspot (the phone joins it; DiPlay listens).
 - BYD extras (HUD navigation, CAN battery dashboard, dashboard-map mirror): depend on DiLink 4/5
-  system services that older Android 6 units do not ship.
-- Floor note: Compose UI 1.10 and core-ktx 1.19 require exactly API 23, so Android 5.x is not
-  reachable with this dependency stack.
+  system services that other/older units do not ship.
+- Floor note: Compose UI 1.10 and core-ktx 1.19 declare API 23. The manifest overrides their
+  floors (`tools:overrideLibrary`) and lint at minSdk 18 still reports several hundred NewApi
+  findings across common/shared (USB configuration enumeration is API 21 and left unguarded on
+  purpose: the target units execute it). The build is therefore verified on real Android 6 units;
+  running below API 21 is best-effort and untested.
+- The debug build uses applicationIdSuffix `.android6` so it installs alongside the community
+  `.hudtest` builds; their different debug keys would otherwise be reported as a parse error.
 
 ## Building the debug APK
 
