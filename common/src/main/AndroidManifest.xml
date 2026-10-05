@@ -42,6 +42,17 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <!-- Dependency-free diagnostic launcher: shows the real platform and any crash traces
+             directly on units whose ROM swallows crash dialogs. -->
+        <activity
+            android:name="com.shilapi.xcertplay.DiPlayProbeActivity"
+            android:exported="true"
+            android:label="DiPlay 诊断">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
         <service android:name="com.shilapi.xcertplay.DiPlaySessionService"
             android:exported="false" android:foregroundServiceType="connectedDevice|microphone|location" />
 
