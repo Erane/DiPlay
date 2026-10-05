@@ -46,6 +46,7 @@ internal class AudioFocusCoordinator(
     private val manager = context?.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
     private val active = LinkedHashMap<AudioTrack, Entry>()
     private var request: AudioFocusRequest? = null
+    private var legacyStream: Int? = null
     private var requestedChannel: AudioChannel? = null
     private val listener = AudioManager.OnAudioFocusChangeListener { change ->
         synchronized(this) {
@@ -71,32 +72,54 @@ internal class AudioFocusCoordinator(
         if (active.remove(track) != null) refreshRequest()
     }
 
+    @Suppress("DEPRECATION")
     private fun refreshRequest() {
         val primary = active.values.maxByOrNull { it.channel.focusPriority() }
         if (primary == null) {
-            request?.let { manager?.abandonAudioFocusRequest(it) }
-            request = null
+            abandonHeld()
             requestedChannel = null
             return
         }
-        if (request != null && requestedChannel == primary.channel) return
-        request?.let { manager?.abandonAudioFocusRequest(it) }
+        if ((request != null || legacyStream != null) && requestedChannel == primary.channel) return
+        abandonHeld()
         val gain = when (primary.channel) {
             AudioChannel.MEDIA -> AudioManager.AUDIOFOCUS_GAIN
             AudioChannel.PHONE -> AudioManager.AUDIOFOCUS_GAIN_TRANSIENT
             AudioChannel.ASSISTANT -> AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK
             AudioChannel.NAVIGATION -> return
         }
-        val next = AudioFocusRequest.Builder(gain)
-            .setAudioAttributes(primary.attributes)
-            .setOnAudioFocusChangeListener(listener, Handler(Looper.getMainLooper()))
-            .build()
-        request = next
+        val stream = streamFor(primary.channel)
+        val result = if (Build.VERSION.SDK_INT >= 26) {
+            val next = AudioFocusRequest.Builder(gain)
+                .setAudioAttributes(primary.attributes)
+                .setOnAudioFocusChangeListener(listener, Handler(Looper.getMainLooper()))
+                .build()
+            request = next
+            manager?.requestAudioFocus(next)
+        } else {
+            // AudioFocusRequest exists only from API 26; Android 6-7 use the stream-based call.
+            legacyStream = stream
+            manager?.requestAudioFocus(listener, stream, gain)
+        }
         requestedChannel = primary.channel
-        val result = manager?.requestAudioFocus(next)
         val line = "Audio: focus requested channel=${primary.channel} gain=$gain granted=$result activeTracks=${active.size}"
         Log.i(TAG, line)
         runCatching { report(line) }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun abandonHeld() {
+        request?.let { manager?.abandonAudioFocusRequest(it) }
+        request = null
+        if (legacyStream != null) manager?.abandonAudioFocus(listener)
+        legacyStream = null
+    }
+
+    private fun streamFor(channel: AudioChannel): Int = when (channel) {
+        AudioChannel.MEDIA -> AudioManager.STREAM_MUSIC
+        AudioChannel.PHONE -> AudioManager.STREAM_VOICE_CALL
+        AudioChannel.ASSISTANT -> AudioManager.STREAM_MUSIC
+        AudioChannel.NAVIGATION -> AudioManager.STREAM_MUSIC
     }
 
     private fun setVolume(volume: Float) {
@@ -292,7 +315,8 @@ class AndroidMediaSink(
         // This callback runs on the downlink thread; microphone failures must not stop playback.
         try {
             if (config.audioType == "telephony") enterCommunicationMode(id)
-            val uplink = microphoneUplinks.computeIfAbsent(id) { MicrophoneUplink(config, onAudioDiagnostic) }
+            // Map.computeIfAbsent needs API 24; stdlib getOrPut uses putIfAbsent, safe on API 23.
+            val uplink = microphoneUplinks.getOrPut(id) { MicrophoneUplink(config, onAudioDiagnostic) }
             if (!uplink.start()) {
                 microphoneUplinks.remove(id, uplink)
                 restoreAudioMode(id)
@@ -368,7 +392,7 @@ class AndroidMediaSink(
     }
 
     private fun videoDecoder(type: Int): VideoDecoder =
-        videoDecoders.computeIfAbsent(type) { newVideoDecoder(type, surfaces[type] ?: defaultSurface) }
+        videoDecoders.getOrPut(type) { newVideoDecoder(type, surfaces[type] ?: defaultSurface) }
 
     private fun newVideoDecoder(type: Int, surface: Surface?, statsLabel: String? = null) = VideoDecoder(
         type,
@@ -844,7 +868,14 @@ private class AudioRenderer(
             packetsReceived.incrementAndGet()
             val now = System.nanoTime()
             val previous = lastArrivalNs.getAndSet(now)
-            if (previous != 0L) maxArrivalGapMs.accumulateAndGet((now - previous) / 1_000_000L, ::maxOf)
+            if (previous != 0L) {
+                // AtomicLong.accumulateAndGet is API 24+; a CAS loop keeps it API 23-safe.
+                val gap = (now - previous) / 1_000_000L
+                while (true) {
+                    val known = maxArrivalGapMs.get()
+                    if (gap <= known || maxArrivalGapMs.compareAndSet(known, gap)) break
+                }
+            }
         }
         if (!started || !queue.offer(AudioPacket(rtp, sample))) {
             if (started) packetsDropped.incrementAndGet()

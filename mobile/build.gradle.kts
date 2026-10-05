@@ -15,7 +15,8 @@ android {
 
     defaultConfig {
         applicationId = "com.shihab.diplay"
-        minSdk = 28
+        // Android 6 (Marshmallow) support: the wired USB path uses only API 23+ calls.
+        minSdk = 23
         targetSdk = 37
         versionCode = 31
         versionName = "0.2.12"
@@ -52,6 +53,8 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
+        // Backports java.util.Base64 and other API 26+ JDK library calls for Android 6.
+        isCoreLibraryDesugaringEnabled = true
     }
     buildFeatures {
         compose = true
@@ -59,6 +62,7 @@ android {
 }
 
 dependencies {
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.5")
     implementation(platform(libs.androidx.compose.bom))
     implementation(project(":common"))
     implementation(project(":shared"))

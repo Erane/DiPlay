@@ -217,8 +217,9 @@ private fun ntp64Now(): BigInteger {
 }
 
 private fun ntpFromNanos(ns: Long): BigInteger {
-    val seconds = BigInteger.valueOf(Math.floorDiv(ns, 1_000_000_000L))
-    val nanos = BigInteger.valueOf(Math.floorMod(ns, 1_000_000_000L))
+    // Math.floorDiv/floorMod are API 24+; Kotlin's equivalents compile to pure arithmetic.
+    val seconds = BigInteger.valueOf(ns.floorDiv(1_000_000_000L))
+    val nanos = BigInteger.valueOf(ns.mod(1_000_000_000L))
     return seconds.shiftLeft(32).or(nanos.shiftLeft(32).divide(NANOS_PER_SECOND))
 }
 
