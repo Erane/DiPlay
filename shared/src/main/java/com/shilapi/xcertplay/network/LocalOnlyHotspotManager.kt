@@ -10,6 +10,7 @@ import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import androidx.core.content.ContextCompat
 import androidx.annotation.RequiresApi
 import com.shilapi.xcertplay.transport.Iap2WirelessSecurity
 import java.io.IOException
@@ -36,8 +37,8 @@ import java.util.concurrent.TimeUnit
 @SuppressLint("NewApi")
 class LocalOnlyHotspotManager(context: Context, private val onDiagnostic: (String) -> Unit = {}) : WirelessHotspotManager {
     private val connectivityManager =
-        context.applicationContext.getSystemService(ConnectivityManager::class.java)
-    private val wifiManager = context.applicationContext.getSystemService(WifiManager::class.java)
+        ContextCompat.getSystemService(context.applicationContext, ConnectivityManager::class.java)
+    private val wifiManager = ContextCompat.getSystemService(context.applicationContext, WifiManager::class.java)
         ?: throw IllegalStateException("WifiManager is unavailable")
     private val stateLock = Object()
 

@@ -3,14 +3,13 @@ package com.shilapi.xcertplay.transport
 import android.annotation.SuppressLint
 import android.os.Build
 import java.io.ByteArrayInputStream
-import java.nio.charset.StandardCharsets
 import java.security.GeneralSecurityException
 import java.security.KeyFactory
 import java.security.KeyStore
 import java.security.cert.CertificateFactory
 import java.security.cert.X509Certificate
 import java.security.spec.PKCS8EncodedKeySpec
-import java.util.Base64
+import android.util.Base64
 import javax.net.ssl.KeyManagerFactory
 import javax.net.ssl.SSLContext
 import javax.net.ssl.SSLEngine
@@ -69,7 +68,7 @@ object LockdownTlsEngineFactory {
         if (begin < 0 || end < 0) throw GeneralSecurityException("Invalid PKCS#8 private key PEM")
         val encoded = pem.copyOfRange(begin + BEGIN_PRIVATE_KEY.size, end)
         return try {
-            Base64.getMimeDecoder().decode(encoded)
+            Base64.decode(encoded, Base64.DEFAULT)
         } catch (error: IllegalArgumentException) {
             throw GeneralSecurityException("Invalid PKCS#8 private key PEM", error)
         } finally {
@@ -104,6 +103,6 @@ object LockdownTlsEngineFactory {
     private const val KEY_ALIAS = "lockdown-host"
     private const val PEER_HOST = "Device"
     private const val PEER_PORT = 0
-    private val BEGIN_PRIVATE_KEY = "-----BEGIN PRIVATE KEY-----".toByteArray(StandardCharsets.US_ASCII)
-    private val END_PRIVATE_KEY = "-----END PRIVATE KEY-----".toByteArray(StandardCharsets.US_ASCII)
+    private val BEGIN_PRIVATE_KEY = "-----BEGIN PRIVATE KEY-----".toByteArray(Charsets.US_ASCII)
+    private val END_PRIVATE_KEY = "-----END PRIVATE KEY-----".toByteArray(Charsets.US_ASCII)
 }

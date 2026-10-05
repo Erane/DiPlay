@@ -6,7 +6,8 @@ android {
     compileSdk = 37
 
     defaultConfig {
-        minSdk = 23
+        minSdk = 18
+        multiDexEnabled = true
         targetSdk = 37
 
         ndk {
@@ -15,7 +16,7 @@ android {
 
         externalNativeBuild {
             ndkBuild {
-                arguments 'APP_PLATFORM=android-23'
+                arguments 'APP_PLATFORM=android-21'
             }
         }
 
@@ -30,13 +31,9 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
-        // The app desugars java.util.Base64 and friends for Android 6; declaring it here keeps
-        // module-level lint consistent and covers any desugared API this module adds later.
-        coreLibraryDesugaringEnabled = true
     }
 }
 dependencies {
-    coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.5'
     implementation libs.androidx.app
     implementation libs.bouncycastle
     implementation libs.jmdns

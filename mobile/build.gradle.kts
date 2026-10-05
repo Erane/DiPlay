@@ -15,11 +15,14 @@ android {
 
     defaultConfig {
         applicationId = "com.shihab.diplay"
-        // Android 6 (Marshmallow) support: the wired USB path uses only API 23+ calls.
-        minSdk = 23
+        // Geely K2X head units report a fake "6.1.1"; their real API level is below 23
+        // (the community H52 build targets Android 4.3 = minSdk 18).
+        minSdk = 18
         targetSdk = 37
         versionCode = 31
         versionName = "0.2.12"
+        // The dex count needs legacy multidex below API 21.
+        multiDexEnabled = true
 
     }
 
@@ -40,8 +43,9 @@ android {
 
     buildTypes {
         debug {
-            applicationIdSuffix = ".hudtest"
-            versionNameSuffix = "-hud-test"
+            // Distinct from the community/community-built .hudtest package so both can coexist.
+            applicationIdSuffix = ".android6"
+            versionNameSuffix = "-android6"
         }
         release {
             optimization {
@@ -53,8 +57,6 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
-        // Backports java.util.Base64 and other API 26+ JDK library calls for Android 6.
-        isCoreLibraryDesugaringEnabled = true
     }
     buildFeatures {
         compose = true
@@ -70,7 +72,7 @@ android {
 }
 
 dependencies {
-    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.5")
+    implementation("androidx.multidex:multidex:2.0.1")
     implementation(platform(libs.androidx.compose.bom))
     implementation(project(":common"))
     implementation(project(":shared"))

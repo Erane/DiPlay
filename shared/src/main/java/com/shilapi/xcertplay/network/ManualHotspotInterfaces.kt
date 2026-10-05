@@ -7,6 +7,7 @@ import android.net.NetworkCapabilities
 import android.net.TetheringInterface
 import android.net.TetheringManager
 import android.os.Build
+import androidx.core.content.ContextCompat
 import androidx.annotation.RequiresApi
 import java.io.Closeable
 import java.io.File
@@ -20,7 +21,7 @@ internal class ManualHotspotInterfaces(
     private val context: Context,
     private val onDiagnostic: (String) -> Unit = {},
 ) : Closeable {
-    private val connectivity = context.getSystemService(ConnectivityManager::class.java)
+    private val connectivity = ContextCompat.getSystemService(context, ConnectivityManager::class.java)
     private val publicTethering = if (Build.VERSION.SDK_INT >= 36) PublicTethering(context) else null
     private var lastLegacyDiagnostic: String? = null
 
@@ -82,7 +83,7 @@ internal class ManualHotspotInterfaces(
     private class PublicTethering(context: Context) : Closeable {
         @Volatile var interfaces: Set<String>? = null
             private set
-        private val manager = context.getSystemService(TetheringManager::class.java)
+        private val manager = ContextCompat.getSystemService(context, TetheringManager::class.java)
         private val callback = object : TetheringManager.TetheringEventCallback {
             override fun onTetheredInterfacesChanged(interfaces: Set<TetheringInterface>) {
                 this@PublicTethering.interfaces = interfaces.filter { it.type == TetheringManager.TETHERING_WIFI }

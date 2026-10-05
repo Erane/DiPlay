@@ -2,7 +2,33 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
+    <!-- minSdk 18 (Geely H52 units): androidx.car-app/media3/compose declare higher floors;
+         the code paths this app exercises are gated at runtime. -->
+    <uses-sdk tools:overrideLibrary="
+        androidx.car.app, androidx.car.app.projected,
+        androidx.activity, androidx.activity.compose,
+        androidx.core, androidx.core.ktx, androidx.core.viewtree, androidx.core.performance,
+        androidx.compose.ui, androidx.compose.ui.graphics, androidx.compose.ui.text,
+        androidx.compose.ui.unit, androidx.compose.ui.geometry, androidx.compose.ui.util,
+        androidx.compose.ui.tooling, androidx.compose.ui.tooling.data, androidx.compose.ui.tooling.preview,
+        androidx.compose.runtime, androidx.compose.runtime.saveable, androidx.compose.runtime.annotation, androidx.compose.runtime.retain,
+        androidx.compose.foundation, androidx.compose.foundation.layout,
+        androidx.compose.animation, androidx.compose.animation.core,
+        androidx.compose.material3, androidx.compose.material, androidx.compose.material.ripple, androidx.compose.material.icons.core,
+        androidx.media3.common, androidx.media3.exoplayer, androidx.media3.ui,
+        androidx.media3.datasource, androidx.media3.container, androidx.media3.decoder, androidx.media3.database,
+        androidx.media3.extractor, androidx.media3.exoplayer.hls,
+        androidx.lifecycle.runtime, androidx.lifecycle.ktx, androidx.lifecycle.runtime.compose, androidx.lifecycle.livedata, androidx.lifecycle.livedata.core, androidx.lifecycle.livedata.core.ktx,
+        androidx.lifecycle.viewmodel, androidx.lifecycle.viewmodel.ktx, androidx.lifecycle.viewmodel.savedstate, androidx.lifecycle.process, androidx.lifecycle.lifecycle.viewmodel.anchor,
+        androidx.savedstate, androidx.savedstate.ktx, androidx.savedstate.compose, androidx.emoji2, androidx.collection, androidx.tracing, androidx.window.core, androidx.window, androidx.graphics.path,
+        androidx.transition, androidx.fragment, androidx.appcompat, androidx.appcompat.resources,
+        androidx.drawerlayout, androidx.coordinatorlayout, androidx.customview, androidx.viewpager,
+        androidx.viewpager2, androidx.recyclerview, androidx.slidingpanelayout,
+        androidx.swiperefreshlayout, androidx.asynclayoutinflater,
+        androidx.profileinstaller, androidx.startup, androidx.versionedparcelable, androidx.annotation.experimental" />
+
     <application
+        android:name="androidx.multidex.MultiDexApplication"
         android:allowBackup="false"
         android:fullBackupContent="@xml/backup_rules"
         android:dataExtractionRules="@xml/data_extraction_rules"

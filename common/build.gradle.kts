@@ -10,15 +10,13 @@ android {
     }
 
     defaultConfig {
-        minSdk = 23
+        minSdk = 18
+        multiDexEnabled = true
     }
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
-        // The app desugars java.util.Base64 and friends for Android 6; declaring it here keeps
-        // module-level lint consistent and covers any desugared API this module adds later.
-        isCoreLibraryDesugaringEnabled = true
     }
 
     buildFeatures {
@@ -33,7 +31,6 @@ android {
 }
 
 dependencies {
-    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.5")
     api(project(":shared"))
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.activity.compose)

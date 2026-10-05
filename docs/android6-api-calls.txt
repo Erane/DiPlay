@@ -1,0 +1,152 @@
+DiPlay-0.2.12-android6-debug.apk: DiPlay's own classes call 63 framework APIs introduced above API 23.
+Every one of them needs a runtime gate, or must be unreachable below that level.
+
+  API  36  android.net.wifi.p2p.WifiP2pGroup.getSecurityType()I  <- 1 site(s)
+            com.shilapi.xcertplay.network.WifiP2pGroupManager.groupSecurity
+  API  36  android.net.wifi.SoftApConfiguration$Builder.build()Landroid/net/wifi/SoftApConfiguration;  <- 1 site(s)
+            com.shilapi.xcertplay.network.LocalOnlyHotspotManager.requestHotspot
+  API  36  android.net.wifi.SoftApConfiguration.getChannels()Landroid/util/SparseIntArray;  <- 2 site(s)
+            com.shilapi.xcertplay.network.LocalOnlyHotspotManager.readConfiguredChannel
+            com.shilapi.xcertplay.network.ManualHotspotManager.readSoftApConfiguration
+  API  36  android.net.TetheringManager.unregisterTetheringEventCallback(Landroid/net/TetheringManager$TetheringEventCallback;)V  <- 1 site(s)
+            com.shilapi.xcertplay.network.ManualHotspotInterfaces$PublicTethering.close
+  API  36  android.net.TetheringManager.registerTetheringEventCallback(Ljava/util/concurrent/Executor;Landroid/net/TetheringManager$TetheringEventCallback;)V  <- 1 site(s)
+            com.shilapi.xcertplay.network.ManualHotspotInterfaces$PublicTethering.<init>
+  API  36  android.net.TetheringInterface.getType()I  <- 1 site(s)
+            com.shilapi.xcertplay.network.ManualHotspotInterfaces$PublicTethering$callback$1.onTetheredInterfacesChanged
+  API  36  android.net.TetheringInterface.getInterface()Ljava/lang/String;  <- 1 site(s)
+            com.shilapi.xcertplay.network.ManualHotspotInterfaces$PublicTethering$callback$1.onTetheredInterfacesChanged
+  API  34  android.net.nsd.NsdServiceInfo.getHostAddresses()Ljava/util/List;  <- 1 site(s)
+            com.shilapi.xcertplay.network.CarPlayBonjour.preferredAddress
+  API  33  android.content.Intent.getParcelableExtra(Ljava/lang/String;Ljava/lang/Class;)Ljava/lang/Object;  <- 2 site(s)
+            com.shilapi.xcertplay.transport.Ch341UsbHost.usbDevice
+            com.shilapi.xcertplay.transport.IphoneUsbHost.usbDevice
+  API  33  android.app.LocaleManager.setApplicationLocales(Landroid/os/LocaleList;)V  <- 2 site(s)
+            com.shilapi.xcertplay.AppLocale.save
+            com.shilapi.xcertplay.AppLocale.wrap
+  API  33  android.app.LocaleManager.getApplicationLocales()Landroid/os/LocaleList;  <- 2 site(s)
+            com.shilapi.xcertplay.AppLocale.preference
+            com.shilapi.xcertplay.AppLocale.wrap
+  API  31  android.net.wifi.WifiInfo.getCurrentSecurityType()I  <- 1 site(s)
+            com.shilapi.xcertplay.network.ExistingWifiManager.start
+  API  30  android.view.SurfaceControlViewHost.setView(Landroid/view/View;II)V  <- 1 site(s)
+            com.shilapi.xcertplay.MapEmbedService$Embed.<init>
+  API  30  android.view.SurfaceControlViewHost.release()V  <- 1 site(s)
+            com.shilapi.xcertplay.MapEmbedService$Embed.release
+  API  30  android.view.SurfaceControlViewHost.relayout(II)V  <- 1 site(s)
+            com.shilapi.xcertplay.MapEmbedService$Embed.resize
+  API  30  android.view.SurfaceControlViewHost.getSurfacePackage()Landroid/view/SurfaceControlViewHost$SurfacePackage;  <- 1 site(s)
+            com.shilapi.xcertplay.MapEmbedService$Embed.getSurfacePackage
+  API  30  android.net.wifi.WifiManager$LocalOnlyHotspotReservation.getSoftApConfiguration()Landroid/net/wifi/SoftApConfiguration;  <- 1 site(s)
+            com.shilapi.xcertplay.network.LocalOnlyHotspotManager.readConfiguration
+  API  30  android.net.wifi.SoftApConfiguration.getSsid()Ljava/lang/String;  <- 2 site(s)
+            com.shilapi.xcertplay.network.LocalOnlyHotspotManager.readSoftApConfiguration
+            com.shilapi.xcertplay.network.ManualHotspotManager.readSoftApConfiguration
+  API  30  android.net.wifi.SoftApConfiguration.getSecurityType()I  <- 2 site(s)
+            com.shilapi.xcertplay.network.LocalOnlyHotspotManager.readSoftApConfiguration
+            com.shilapi.xcertplay.network.ManualHotspotManager.readSoftApConfiguration
+  API  30  android.net.wifi.SoftApConfiguration.getPassphrase()Ljava/lang/String;  <- 1 site(s)
+            com.shilapi.xcertplay.network.LocalOnlyHotspotManager.readSoftApConfiguration
+  API  30  android.net.wifi.SoftApConfiguration.getBssid()Landroid/net/MacAddress;  <- 1 site(s)
+            com.shilapi.xcertplay.network.LocalOnlyHotspotManager.readSoftApConfiguration
+  API  30  android.net.NetworkRequest$Builder.clearCapabilities()Landroid/net/NetworkRequest$Builder;  <- 1 site(s)
+            com.shilapi.xcertplay.network.ExistingWifiManager.start
+  API  30  android.app.ApplicationExitInfo.getTimestamp()J  <- 1 site(s)
+            com.shilapi.xcertplay.ProcessExitDiagnostics.report$lambda$1
+  API  30  android.app.ApplicationExitInfo.getStatus()I  <- 1 site(s)
+            com.shilapi.xcertplay.ProcessExitDiagnostics.report$lambda$1
+  API  30  android.app.ApplicationExitInfo.getRss()J  <- 1 site(s)
+            com.shilapi.xcertplay.ProcessExitDiagnostics.report$lambda$1
+  API  30  android.app.ApplicationExitInfo.getReason()I  <- 1 site(s)
+            com.shilapi.xcertplay.ProcessExitDiagnostics.report$lambda$1
+  API  30  android.app.ApplicationExitInfo.getPss()J  <- 1 site(s)
+            com.shilapi.xcertplay.ProcessExitDiagnostics.report$lambda$1
+  API  30  android.app.ApplicationExitInfo.getImportance()I  <- 1 site(s)
+            com.shilapi.xcertplay.ProcessExitDiagnostics.report$lambda$1
+  API  30  android.app.ActivityManager.getHistoricalProcessExitReasons(Ljava/lang/String;II)Ljava/util/List;  <- 1 site(s)
+            com.shilapi.xcertplay.ProcessExitDiagnostics.report$lambda$1
+  API  29  android.net.wifi.p2p.WifiP2pManager.requestP2pState(Landroid/net/wifi/p2p/WifiP2pManager$Channel;Landroid/net/wifi/p2p/WifiP2pManager$P2pStateListener;)V  <- 1 site(s)
+            com.shilapi.xcertplay.network.WifiP2pGroupManager.logP2pState
+  API  29  android.net.wifi.p2p.WifiP2pManager.createGroup(Landroid/net/wifi/p2p/WifiP2pManager$Channel;Landroid/net/wifi/p2p/WifiP2pConfig;Landroid/net/wifi/p2p/WifiP2pManager$ActionListener;)V  <- 1 site(s)
+            com.shilapi.xcertplay.network.WifiP2pGroupManager.start$lambda$22
+  API  29  android.net.wifi.p2p.WifiP2pGroup.getFrequency()I  <- 1 site(s)
+            com.shilapi.xcertplay.network.WifiP2pGroupManager.awaitUsableGroup
+  API  29  android.net.wifi.p2p.WifiP2pConfig$Builder.setPassphrase(Ljava/lang/String;)Landroid/net/wifi/p2p/WifiP2pConfig$Builder;  <- 1 site(s)
+            com.shilapi.xcertplay.network.WifiP2pGroupManager.start$lambda$22$lambda$19
+  API  29  android.net.wifi.p2p.WifiP2pConfig$Builder.setNetworkName(Ljava/lang/String;)Landroid/net/wifi/p2p/WifiP2pConfig$Builder;  <- 1 site(s)
+            com.shilapi.xcertplay.network.WifiP2pGroupManager.start$lambda$22$lambda$19
+  API  29  android.net.wifi.p2p.WifiP2pConfig$Builder.setGroupOperatingFrequency(I)Landroid/net/wifi/p2p/WifiP2pConfig$Builder;  <- 1 site(s)
+            com.shilapi.xcertplay.network.WifiP2pGroupManager.start$lambda$22$lambda$19
+  API  29  android.net.wifi.p2p.WifiP2pConfig$Builder.build()Landroid/net/wifi/p2p/WifiP2pConfig;  <- 1 site(s)
+            com.shilapi.xcertplay.network.WifiP2pGroupManager.start$lambda$22$lambda$19
+  API  29  android.net.NetworkCapabilities.getTransportInfo()Landroid/net/TransportInfo;  <- 1 site(s)
+            com.shilapi.xcertplay.network.ExistingWifiManager.start
+  API  29  android.media.MediaCodecInfo.isSoftwareOnly()Z  <- 2 site(s)
+            com.shilapi.xcertplay.media.VideoDecoder.createDecoder
+            com.shilapi.xcertplay.media.VideoDecoder.softwareDecoderName
+  API  29  android.media.MediaCodecInfo.isHardwareAccelerated()Z  <- 1 site(s)
+            com.shilapi.xcertplay.CarPlayHostActivity.decoderCanvasSupport
+  API  29  android.media.AudioTrack.getAudioAttributes()Landroid/media/AudioAttributes;  <- 1 site(s)
+            com.shilapi.xcertplay.media.AndroidMediaSinkKt.audioTrackAttributesForFocus
+  API  29  android.app.AppOpsManager.unsafeCheckOpNoThrow(Ljava/lang/String;ILjava/lang/String;)I  <- 1 site(s)
+            com.shilapi.xcertplay.network.WifiP2pGroupManager.checkPrerequisites
+  API  28  android.net.MacAddress.toByteArray()[B  <- 2 site(s)
+            com.shilapi.xcertplay.network.LocalOnlyHotspotManager.readSoftApConfiguration
+            com.shilapi.xcertplay.network.LocalOnlyHotspotManager.readWifiConfiguration
+  API  28  android.net.MacAddress.fromString(Ljava/lang/String;)Landroid/net/MacAddress;  <- 1 site(s)
+            com.shilapi.xcertplay.network.LocalOnlyHotspotManager.readWifiConfiguration
+  API  28  android.location.LocationManager.isLocationEnabled()Z  <- 1 site(s)
+            com.shilapi.xcertplay.network.WifiP2pGroupManager.checkPrerequisites
+  API  28  android.content.pm.SigningInfo.getApkContentsSigners()[Landroid/content/pm/Signature;  <- 3 site(s)
+            com.shilapi.xcertplay.hud.BydStandaloneHudOutput$Companion.available
+            com.shilapi.xcertplay.hud.BydStandaloneHudOutput$Companion.diagnostics
+            com.shilapi.xcertplay.hud.StandaloneHudDemoActivity.validateTarget
+  API  28  android.content.pm.PackageInfo.getLongVersionCode()J  <- 3 site(s)
+            com.shilapi.xcertplay.hud.BydStandaloneHudOutput$Companion.available
+            com.shilapi.xcertplay.hud.BydStandaloneHudOutput$Companion.diagnostics
+            com.shilapi.xcertplay.hud.StandaloneHudDemoActivity.validateTarget
+  API  28  android.content.Context.getMainExecutor()Ljava/util/concurrent/Executor;  <- 1 site(s)
+            com.shilapi.xcertplay.network.ManualHotspotInterfaces$PublicTethering.<init>
+  API  26  android.system.Os.setsockoptInt(Ljava/io/FileDescriptor;III)V  <- 1 site(s)
+            com.shilapi.xcertplay.network.TcpLiveness.configure
+  API  26  android.net.wifi.WifiManager$LocalOnlyHotspotReservation.getWifiConfiguration()Landroid/net/wifi/WifiConfiguration;  <- 1 site(s)
+            com.shilapi.xcertplay.network.LocalOnlyHotspotManager.readConfiguration
+  API  26  android.net.wifi.WifiManager.startLocalOnlyHotspot(Landroid/net/wifi/WifiManager$LocalOnlyHotspotCallback;Landroid/os/Handler;)V  <- 1 site(s)
+            com.shilapi.xcertplay.network.LocalOnlyHotspotManager.requestHotspot
+  API  26  android.media.AudioManager.requestAudioFocus(Landroid/media/AudioFocusRequest;)I  <- 3 site(s)
+            com.shilapi.xcertplay.CarPlayMediaKeys.regainFocusLocked
+            com.shilapi.xcertplay.CarPlayMediaKeys.start
+            com.shilapi.xcertplay.media.AudioFocusCoordinator.refreshRequest
+  API  26  android.media.AudioManager.abandonAudioFocusRequest(Landroid/media/AudioFocusRequest;)I  <- 2 site(s)
+            com.shilapi.xcertplay.CarPlayMediaKeys.releaseLocked
+            com.shilapi.xcertplay.media.AudioFocusCoordinator.abandonHeld
+  API  26  android.media.AudioFocusRequest$Builder.setOnAudioFocusChangeListener(Landroid/media/AudioManager$OnAudioFocusChangeListener;Landroid/os/Handler;)Landroid/media/AudioFocusRequest$Builder;  <- 2 site(s)
+            com.shilapi.xcertplay.CarPlayMediaKeys.start
+            com.shilapi.xcertplay.media.AudioFocusCoordinator.refreshRequest
+  API  26  android.media.AudioFocusRequest$Builder.setAudioAttributes(Landroid/media/AudioAttributes;)Landroid/media/AudioFocusRequest$Builder;  <- 2 site(s)
+            com.shilapi.xcertplay.CarPlayMediaKeys.start
+            com.shilapi.xcertplay.media.AudioFocusCoordinator.refreshRequest
+  API  26  android.media.AudioFocusRequest$Builder.build()Landroid/media/AudioFocusRequest;  <- 2 site(s)
+            com.shilapi.xcertplay.CarPlayMediaKeys.start
+            com.shilapi.xcertplay.media.AudioFocusCoordinator.refreshRequest
+  API  26  android.hardware.usb.UsbRequest.queue(Ljava/nio/ByteBuffer;)Z  <- 2 site(s)
+            com.shilapi.xcertplay.transport.Iap2UsbSession.read
+            com.shilapi.xcertplay.transport.NcmUsbBridge.readChunk
+  API  26  android.hardware.usb.UsbDeviceConnection.requestWait(J)Landroid/hardware/usb/UsbRequest;  <- 3 site(s)
+            com.shilapi.xcertplay.transport.Iap2UsbSession.drainCancelledRead
+            com.shilapi.xcertplay.transport.Iap2UsbSession.read
+            com.shilapi.xcertplay.transport.NcmUsbBridge.readChunk
+  API  26  android.content.Context.registerReceiver(Landroid/content/BroadcastReceiver;Landroid/content/IntentFilter;I)Landroid/content/Intent;  <- 2 site(s)
+            com.shilapi.xcertplay.transport.Ch341UsbHost.registerPermissionReceiver
+            com.shilapi.xcertplay.transport.IphoneUsbHost.registerReceiver
+  API  26  android.app.NotificationManager.createNotificationChannel(Landroid/app/NotificationChannel;)V  <- 1 site(s)
+            com.shilapi.xcertplay.DiPlaySessionService.onStartCommand
+  API  24  android.os.LocaleList.isEmpty()Z  <- 2 site(s)
+            com.shilapi.xcertplay.AppLocale.preference
+            com.shilapi.xcertplay.AppLocale.wrap
+  API  24  android.os.LocaleList.getEmptyLocaleList()Landroid/os/LocaleList;  <- 1 site(s)
+            com.shilapi.xcertplay.AppLocale.save
+  API  24  android.os.LocaleList.get(I)Ljava/util/Locale;  <- 1 site(s)
+            com.shilapi.xcertplay.AppLocale.preference
+  API  24  android.media.AudioTrack.getUnderrunCount()I  <- 1 site(s)
+            com.shilapi.xcertplay.media.AndroidMediaSinkKt.getUnderrunCountCompat

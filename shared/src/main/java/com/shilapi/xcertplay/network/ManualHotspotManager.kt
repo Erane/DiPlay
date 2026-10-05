@@ -1,5 +1,6 @@
 package com.shilapi.xcertplay.network
 
+import androidx.core.content.ContextCompat
 import android.annotation.SuppressLint
 import android.content.Context
 import android.net.wifi.SoftApConfiguration
@@ -38,7 +39,7 @@ class ManualHotspotManager(
     private val waitLock = Object()
     private var confirmed: HotspotSelection? = null
     private var lastSampleLog = emptyList<String>()
-    private val wifiManager = appContext.getSystemService(WifiManager::class.java)
+    private val wifiManager = ContextCompat.getSystemService(appContext, WifiManager::class.java)
         ?: throw IllegalStateException("WifiManager is unavailable")
     private val expectedSsid = ssid
     private val passphrase = passphrase

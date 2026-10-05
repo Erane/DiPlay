@@ -1,6 +1,7 @@
 package com.shilapi.xcertplay.network
 
 import android.content.Context
+import androidx.core.content.ContextCompat
 import android.net.nsd.NsdManager
 import android.net.nsd.NsdServiceInfo
 import android.net.wifi.WifiManager
@@ -18,7 +19,7 @@ import java.net.Inet6Address
 import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.Socket
-import java.nio.charset.StandardCharsets
+import java.util.Collections
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.LinkedBlockingQueue
@@ -148,7 +149,7 @@ class CarPlayBonjour(
     private val services = LinkedBlockingQueue<NsdServiceInfo>()
     private val interfaceServices = LinkedBlockingQueue<Pair<CarPlayBonjourEndpoint, InetAddress>>()
     private val discoveryEvents = LinkedBlockingQueue<CarPlayBonjourEvent.Discovery>(32)
-    private val seenServices = ConcurrentHashMap.newKeySet<String>()
+    private val seenServices = Collections.newSetFromMap(ConcurrentHashMap<String, Boolean>())
     private val lifecycleLock = Any()
     private val localAdvertisedAddress = advertisedHostAddress()
     private val advertisedAddresses = (listOfNotNull(localAdvertisedAddress) + additionalAddresses).distinct()
@@ -166,9 +167,8 @@ class CarPlayBonjour(
             "bonjourAddressMismatch=${addressMismatchCount.get()} connectProbes=${probeCount.get()} " +
             "connectProbe2xx=${successfulProbeCount.get()} lastProbe=${lastProbe.get()} " +
             "mdnsFamilies=$publishedFamilies"
-    private val multicastLock = (context.applicationContext ?: context)
-        .getSystemService(WifiManager::class.java)
-        .createMulticastLock("carplay-bonjour").apply { setReferenceCounted(false) }
+    private val multicastLock = ContextCompat.getSystemService(context.applicationContext ?: context, WifiManager::class.java)
+        ?.createMulticastLock("carplay-bonjour")?.apply { setReferenceCounted(false) }
 
     private var started = false
     @Volatile
@@ -269,7 +269,7 @@ class CarPlayBonjour(
             if (started) return
             started = true
             try {
-                multicastLock.acquire()
+                multicastLock?.acquire()
                 if (useInterfaceMdns) {
                     requireNotNull(localAdvertisedAddress) {
                         "Interface mDNS requires a local advertised address"
@@ -316,7 +316,7 @@ class CarPlayBonjour(
                 interfaceMdns.forEach { dns -> runCatching { dns.close() } }
                 interfaceMdns.clear()
                 publishedFamilies = "none"
-                if (multicastLock.isHeld) multicastLock.release()
+                multicastLock?.let { if (it.isHeld) it.release() }
                 throw error
             }
         }
@@ -347,7 +347,7 @@ class CarPlayBonjour(
             workerToJoin = worker
             worker = null
             workerToJoin?.interrupt()
-            if (multicastLock.isHeld) multicastLock.release()
+            multicastLock?.let { if (it.isHeld) it.release() }
         }
         dnsToClose.forEach { dns -> runCatching { dns.close() } }
         workerToJoin?.let(::joinWorker)
@@ -575,12 +575,12 @@ class CarPlayBonjour(
                 deviceId = config.deviceId,
             )
             val output = socket.getOutputStream()
-            output.write(request.toByteArray(StandardCharsets.US_ASCII))
+            output.write(request.toByteArray(Charsets.US_ASCII))
             output.flush()
             stage = CarPlayBonjourEvent.ProbeProgress.Stage.REQUEST_SENT
             emit(CarPlayBonjourEvent.ProbeProgress(CarPlayBonjourEvent.ProbeProgress.Stage.REQUEST_SENT, attempt, address is Inet6Address))
             val reader = BufferedReader(
-                InputStreamReader(socket.getInputStream(), StandardCharsets.US_ASCII),
+                InputStreamReader(socket.getInputStream(), Charsets.US_ASCII),
             )
             return reader.readLine()
                 ?: throw IOException("AirPlay control probe returned no status line")
@@ -626,7 +626,7 @@ class CarPlayBonjour(
     }
 
     private fun decodeTxtValue(value: ByteArray): String =
-        String(value, StandardCharsets.UTF_8).trimEnd('\u0000')
+        String(value, Charsets.UTF_8).trimEnd('\u0000')
 
     private fun joinWorker(worker: Thread) {
         if (worker === Thread.currentThread()) return

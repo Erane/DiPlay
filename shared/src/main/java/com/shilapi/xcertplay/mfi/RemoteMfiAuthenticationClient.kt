@@ -4,9 +4,8 @@ import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
-import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
-import java.util.Base64
+import android.util.Base64
 import java.util.UUID
 import com.shilapi.xcertplay.iap2.message.Iap2AuthenticationMessages
 
@@ -92,7 +91,7 @@ class RemoteMfiAuthenticationClient(
             )
         }
         val requestId = UUID.randomUUID().toString()
-        val encodedChallenge = Base64.getEncoder().encodeToString(challenge.copyOf())
+        val encodedChallenge = Base64.encodeToString(challenge.copyOf(), Base64.NO_WRAP)
         val response = request(
             method = "POST",
             path = SIGN_PATH,
@@ -223,7 +222,7 @@ class RemoteMfiAuthenticationClient(
             connection.setRequestProperty("Accept", JSON_CONTENT_TYPE)
             bearerToken?.let { connection.setRequestProperty("Authorization", "Bearer $it") }
             if (requestBody != null) {
-                val bodyBytes = requestBody.toByteArray(StandardCharsets.UTF_8)
+                val bodyBytes = requestBody.toByteArray(Charsets.UTF_8)
                 connection.doOutput = true
                 connection.setRequestProperty("Content-Type", JSON_CONTENT_TYPE)
                 connection.setFixedLengthStreamingMode(bodyBytes.size)
@@ -251,11 +250,11 @@ class RemoteMfiAuthenticationClient(
             }
             output.write(buffer, 0, count)
         }
-        return output.toString(StandardCharsets.UTF_8.name())
+        return output.toString(Charsets.UTF_8.name())
     }
 
     private fun decodeBase64(encoded: String, field: String): ByteArray = try {
-        Base64.getDecoder().decode(encoded)
+        Base64.decode(encoded, Base64.DEFAULT)
     } catch (failure: IllegalArgumentException) {
         throw MfiInvalidDataException("Remote $field is not valid base64", failure)
     }

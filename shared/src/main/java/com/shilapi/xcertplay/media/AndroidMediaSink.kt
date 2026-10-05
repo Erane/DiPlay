@@ -1,5 +1,6 @@
 package com.shilapi.xcertplay.media
 
+import androidx.core.content.ContextCompat
 import android.content.Context
 import android.media.AudioAttributes
 import android.media.AudioFocusRequest
@@ -166,7 +167,7 @@ class AndroidMediaSink(
     private val onMediaAudioChanged: (Boolean) -> Unit = {},
 ) : MediaSink {
     private val appContext = context?.applicationContext
-    private val audioManager = appContext?.getSystemService(AudioManager::class.java)
+    private val audioManager = appContext?.let { ContextCompat.getSystemService(it, AudioManager::class.java) }
     private val audioFocusCoordinator = AudioFocusCoordinator(
         appContext,
         audioFocusEnabled,
@@ -642,7 +643,7 @@ private class VideoDecoder(
             return
         }
         val codec = decoder
-        if (codec != null) {
+        if (codec != null && Build.VERSION.SDK_INT >= 23) {
             try {
                 codec.setOutputSurface(surface)
                 Log.i(TAG, "video decoder output surface updated")
@@ -1009,7 +1010,7 @@ private class AudioRenderer(
         val built: AudioTrack
         var routeLabel: String
         diagnosticStage = "track-build"
-        if (streamOverride == 0) {
+        if (Build.VERSION.SDK_INT >= 23 && streamOverride == 0) {
             attributes = audioAttributesFor(selection)
             routeLabel = "usage"
             built = AudioTrack.Builder()
@@ -1018,7 +1019,7 @@ private class AudioRenderer(
                 .setTransferMode(AudioTrack.MODE_STREAM)
                 .setBufferSizeInBytes(plan.trackBufferBytes)
                 .build()
-        } else {
+        } else if (Build.VERSION.SDK_INT >= 23) {
             val streamType = streamOverride
             routeLabel = "streamType=$streamType"
             built = LegacyAudioFallback.build(
@@ -1041,12 +1042,21 @@ private class AudioRenderer(
                         .build()
                 },
             )
+        } else {
+            // Pre-23: no AudioTrack.Builder; the legacy constructor covers every ROM.
+            val streamType = if (streamOverride == 0) AudioManager.STREAM_MUSIC else streamOverride
+            routeLabel = "streamType=$streamType(pre-23)"
+            attributes = audioAttributesFor(selection)
+            built = AudioTrack(streamType, format.sampleRate, channelMask, encoding,
+                plan.trackBufferBytes, AudioTrack.MODE_STREAM)
         }
         track = built
         diagnosticStage = "track-attributes"
         trackAttributes = audioTrackAttributesForFocus(built, attributes)
         diagnosticStage = "track-capacity"
-        val capacityBytes = built.bufferSizeInFrames * frameBytes
+        // getBufferSizeInFrames is API 23; pre-23 the capacity is the requested buffer size.
+        val capacityBytes = if (Build.VERSION.SDK_INT >= 23) built.bufferSizeInFrames * frameBytes
+        else plan.trackBufferBytes
         startThresholdBytes = MediaAudioBuffer.startBytesFor(plan.startBytes, capacityBytes, PREBUFFER_WRITE_CHUNK_BYTES)
         val trackMetadata = runCatching {
             "api=${Build.VERSION.SDK_INT} trackState=${built.state} trackRate=${built.sampleRate} " +
@@ -1361,7 +1371,12 @@ private class AudioRenderer(
             }
             val writeStarted = System.nanoTime()
             diagnosticStage = "track-write"
-            val count = track.write(data, offset + written, writeLength, AudioTrack.WRITE_BLOCKING)
+            // The 4-argument write (with WRITE_BLOCKING) is API 23; the 3-argument form blocks too.
+            val count = if (Build.VERSION.SDK_INT >= 23) {
+                track.write(data, offset + written, writeLength, AudioTrack.WRITE_BLOCKING)
+            } else {
+                track.write(data, offset + written, writeLength)
+            }
             maxWriteMs = maxOf(maxWriteMs, (System.nanoTime() - writeStarted) / 1_000_000L)
             if (count < 0) {
                 writeErrorsThisWindow++
@@ -1431,10 +1446,10 @@ private class AudioRenderer(
         }
         val queuedFrames = playbackHeadFrames?.let { (totalWrittenFrames - it).coerceAtLeast(0L) }
         val line = "audio stats audioType=${format.audioType} channel=$mappedChannel " +
-            "routeType=${currentTrack?.routedDevice?.type ?: -1} codec=${format.codec} " +
+            "routeType=${if (Build.VERSION.SDK_INT >= 23) currentTrack?.routedDevice?.type ?: -1 else -1} codec=${format.codec} " +
             "trackState=${currentTrack?.state ?: -1} playState=${currentTrack?.playState ?: -1} " +
             "sampleRate=${currentTrack?.sampleRate ?: format.sampleRate} " +
-            "trackBufferFrames=${currentTrack?.bufferSizeInFrames ?: -1} " +
+            "trackBufferFrames=${if (Build.VERSION.SDK_INT >= 23) currentTrack?.bufferSizeInFrames ?: -1 else -1} " +
             "rx=${packetsReceived.getAndSet(0)} " +
             "dropped=${packetsDropped.getAndSet(0)} underruns=+${underruns - statsLastUnderruns} queue=${queue.size} " +
             "playing=$playbackStarted maxGapMs=${maxArrivalGapMs.getAndSet(0)} " +

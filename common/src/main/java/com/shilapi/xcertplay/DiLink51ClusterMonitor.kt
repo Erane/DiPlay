@@ -1,5 +1,6 @@
 package com.shilapi.xcertplay
 
+import androidx.core.content.ContextCompat
 import android.app.AppOpsManager
 import android.app.usage.UsageEvents
 import android.app.usage.UsageStatsManager
@@ -51,7 +52,7 @@ internal class DiLink51ClusterMonitor(context: Context, private val onState: (Cl
                     seen.clear()
                     since = bootTime()
                 }
-                val events = context.getSystemService(UsageStatsManager::class.java).queryEvents(since, now)
+                val events = ContextCompat.getSystemService(context, UsageStatsManager::class.java)!!.queryEvents(since, now)
                     ?: throw IllegalStateException("Usage events unavailable")
                 val event = UsageEvents.Event()
                 while (events.hasNextEvent()) {
@@ -79,7 +80,7 @@ internal class DiLink51ClusterMonitor(context: Context, private val onState: (Cl
     }
 
     companion object {
-        fun hasAccess(context: Context): Boolean = context.getSystemService(AppOpsManager::class.java)
+        fun hasAccess(context: Context): Boolean = ContextCompat.getSystemService(context, AppOpsManager::class.java)!!
             .checkOpNoThrow(AppOpsManager.OPSTR_GET_USAGE_STATS, Process.myUid(), context.packageName) == AppOpsManager.MODE_ALLOWED
     }
 }

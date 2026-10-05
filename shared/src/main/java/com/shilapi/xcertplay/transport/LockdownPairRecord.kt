@@ -2,7 +2,6 @@ package com.shilapi.xcertplay.transport
 
 import java.io.ByteArrayOutputStream
 import java.math.BigInteger
-import java.nio.charset.StandardCharsets
 import java.security.GeneralSecurityException
 import java.security.KeyFactory
 import java.security.KeyPairGenerator
@@ -13,7 +12,7 @@ import java.security.Signature
 import java.security.interfaces.RSAPublicKey
 import java.security.spec.RSAPublicKeySpec
 import java.text.SimpleDateFormat
-import java.util.Base64
+import android.util.Base64
 import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
@@ -294,12 +293,12 @@ private object CertificateMaterialGenerator {
         else sequence(objectIdentifier(oid), octetString(value))
 
     private fun parsePkcs1RsaPublicKey(pem: ByteArray): RSAPublicKey {
-        val text = pem.toString(StandardCharsets.US_ASCII).trim()
+        val text = pem.toString(Charsets.US_ASCII).trim()
         val begin = "-----BEGIN RSA PUBLIC KEY-----"
         val end = "-----END RSA PUBLIC KEY-----"
         require(text.startsWith(begin) && text.endsWith(end)) { "Expected a PKCS#1 RSA public key" }
         val encoded = text.substring(begin.length, text.length - end.length).filterNot(Char::isWhitespace)
-        val der = Base64.getDecoder().decode(encoded)
+        val der = Base64.decode(encoded, Base64.DEFAULT)
         val outer = DerReader(der)
         val sequence = outer.readConstructed(0x30)
         val modulus = sequence.readPositiveInteger()
@@ -317,15 +316,16 @@ private object CertificateMaterialGenerator {
         if (commonName == null) sequence() else sequence(set(sequence(objectIdentifier("2.5.4.3"), utf8String(commonName))))
 
     private fun pem(label: String, der: ByteArray): ByteArray {
-        val encoded = Base64.getMimeEncoder(64, byteArrayOf('\n'.code.toByte())).encodeToString(der)
-        return "-----BEGIN $label-----\n$encoded\n-----END $label-----\n".toByteArray(StandardCharsets.US_ASCII)
+        // android.util.Base64 replaces java.util.Base64 (API 26+); DEFAULT wraps at the standard 76 columns.
+        val encoded = Base64.encodeToString(der, Base64.DEFAULT)
+        return "-----BEGIN $label-----\n$encoded\n-----END $label-----\n".toByteArray(Charsets.US_ASCII)
     }
 
     private fun algorithmIdentifier(oid: String): ByteArray = sequence(objectIdentifier(oid), der(0x05, ByteArray(0)))
     private fun sequence(vararg values: ByteArray): ByteArray = der(0x30, concatenate(*values))
     private fun set(vararg values: ByteArray): ByteArray = der(0x31, concatenate(*values))
     private fun explicit(number: Int, value: ByteArray): ByteArray = der(0xa0 + number, value)
-    private fun utf8String(value: String): ByteArray = der(0x0c, value.toByteArray(StandardCharsets.UTF_8))
+    private fun utf8String(value: String): ByteArray = der(0x0c, value.toByteArray(Charsets.UTF_8))
 
     private fun certificateTime(valueMillis: Long): ByteArray {
         val utc = TimeZone.getTimeZone("UTC")
@@ -336,7 +336,7 @@ private object CertificateMaterialGenerator {
             if (utcTime) "yyMMddHHmmss'Z'" else "yyyyMMddHHmmss'Z'",
             Locale.US,
         ).apply { timeZone = utc }
-        return der(if (utcTime) 0x17 else 0x18, formatter.format(Date(valueMillis)).toByteArray(StandardCharsets.US_ASCII))
+        return der(if (utcTime) 0x17 else 0x18, formatter.format(Date(valueMillis)).toByteArray(Charsets.US_ASCII))
     }
 
     private fun integer(value: BigInteger): ByteArray {

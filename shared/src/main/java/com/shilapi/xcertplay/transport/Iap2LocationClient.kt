@@ -28,7 +28,7 @@ data class CarPlayLocationFix(
 }
 
 /** Supplies location data only while the phone has subscribed to iAP2 LocationInformation. */
-interface Iap2LocationProvider : AutoCloseable {
+interface Iap2LocationProvider : java.io.Closeable {
     /** The 0xFFFA parameter ids, i.e. the sentence types the iPhone asked for; called before [start]. */
     fun onRequested(components: Set<Int>) = Unit
 

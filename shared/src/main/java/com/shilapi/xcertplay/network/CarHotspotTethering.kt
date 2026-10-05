@@ -1,6 +1,8 @@
 package com.shilapi.xcertplay.network
 
+import androidx.core.content.ContextCompat
 import android.content.Context
+import android.os.Build
 import android.net.ConnectivityManager
 import android.os.Bundle
 import android.os.ResultReceiver
@@ -25,7 +27,9 @@ object CarHotspotTethering {
         CANCELLED("Hotspot startup was cancelled"),
     }
 
-    fun permitted(context: Context): Boolean = Settings.System.canWrite(context)
+    fun permitted(context: Context): Boolean =
+        // canWrite exists from API 23; WRITE_SETTINGS is a normal install-time grant below it.
+        Build.VERSION.SDK_INT >= 23 && Settings.System.canWrite(context)
 
     /** Blocking; serialize startup and connection requests, checking cancellation after acquiring the lock. */
     fun enable(
@@ -39,7 +43,7 @@ object CarHotspotTethering {
         val startReflection: (ResultReceiver) -> Unit = { receiver ->
             val service = ConnectivityManager::class.java.getDeclaredField("mService")
                 .apply { isAccessible = true }
-                .get(context.getSystemService(ConnectivityManager::class.java))
+                .get(ContextCompat.getSystemService(context, ConnectivityManager::class.java))
                 ?: throw NoSuchMethodException("Connectivity service unavailable")
             service.javaClass.getMethod(
                 "startTethering", Int::class.javaPrimitiveType, ResultReceiver::class.java,

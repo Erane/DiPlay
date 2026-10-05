@@ -1,5 +1,6 @@
 package com.shilapi.xcertplay
 
+import androidx.core.content.ContextCompat
 import android.app.Presentation
 import android.content.Context
 import android.graphics.Color
@@ -163,7 +164,7 @@ internal class ClusterMapPresentation(
 
         /** Keep the 5/5.1 selection order, then try the measured DiLink 4 projection display. */
         fun findDisplay(context: Context, theme: DiLink51ClusterLayout.Theme = DiLink51ClusterLayout.theme(context)): Display? {
-            val displays = context.getSystemService(DisplayManager::class.java)
+            val displays = ContextCompat.getSystemService(context, DisplayManager::class.java)
                 ?.getDisplays(DisplayManager.DISPLAY_CATEGORY_PRESENTATION) ?: return null
             val name = DiLink51ClusterLayout.displayName(
                 displays.map { it.name }, android.os.Build.FINGERPRINT, theme,
@@ -185,7 +186,7 @@ internal class ClusterMapPresentation(
         }
 
         fun describeDisplays(context: Context): String =
-            context.getSystemService(DisplayManager::class.java)?.displays
+            ContextCompat.getSystemService(context, DisplayManager::class.java)?.displays
                 ?.joinToString {
                     val size = sizeOf(it)
                     "${it.displayId}:${it.name} ${size.x}x${size.y} flags=${it.flags} valid=${it.isValid}"
@@ -195,7 +196,7 @@ internal class ClusterMapPresentation(
             appendLine("clusterEnabled=${AirPlayPersistence.loadClusterMapEnabled(context)}")
             appendLine("navigationReceiverAvailable=${com.shilapi.xcertplay.hud.BydOutputSettings.navigationAvailable(context)}")
             appendLine("allDisplays=${describeDisplays(context)}")
-            val presentations = context.getSystemService(DisplayManager::class.java)
+            val presentations = ContextCompat.getSystemService(context, DisplayManager::class.java)
                 ?.getDisplays(DisplayManager.DISPLAY_CATEGORY_PRESENTATION).orEmpty()
             appendLine("presentationDisplayIds=${presentations.joinToString { it.displayId.toString() }}")
             val selected = findDisplay(context)
