@@ -69,12 +69,12 @@ class DiPlayProbeActivity : Activity() {
         if (!found) appendLine("==== 未发现任何诊断文件：进程此前从未启动过 ====")
     }
 
-    private fun buildReport(text: String): ScrollView = ScrollView(this).apply {
+    private fun buildReport(content: String): ScrollView = ScrollView(this).apply {
         addView(
             TextView(this@DiPlayProbeActivity).apply {
                 textSize = 13f
                 setPadding(32, 32, 32, 32)
-                text = text
+                text = content
                 setTextIsSelectable(true)
             },
         )
