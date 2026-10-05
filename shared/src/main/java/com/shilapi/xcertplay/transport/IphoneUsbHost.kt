@@ -239,23 +239,33 @@ class IphoneUsbHost(
             ?: throw IphoneUsbException.DeviceUnavailable("UsbManager could not open the iPhone")
         var claimedInterface: UsbInterface? = null
         try {
-            val configuration = IphoneCarPlayConfiguration.find(device)
-                ?: throw IphoneUsbException.Protocol(
-                    "Re-enumerated iPhone exposes no USBMUX CarPlay configuration",
-                )
-            if (!connection.setConfiguration(configuration)) {
-                Log.w(
-                    IphoneCarPlayConfiguration.TAG,
-                    "setConfiguration ${configuration.id} reported failure; claiming anyway",
-                )
+            // Pre-21 devices have no UsbConfiguration API: the re-enumerated iPhone's ACTIVE
+            // configuration is the CarPlay one, exposed through the device-level interfaces.
+            val usbMux: UsbInterface
+            if (Build.VERSION.SDK_INT >= 21) {
+                val configuration = IphoneCarPlayConfiguration.find(device)
+                    ?: throw IphoneUsbException.Protocol(
+                        "Re-enumerated iPhone exposes no USBMUX CarPlay configuration",
+                    )
+                if (!connection.setConfiguration(configuration)) {
+                    Log.w(
+                        IphoneCarPlayConfiguration.TAG,
+                        "setConfiguration ${configuration.id} reported failure; claiming anyway",
+                    )
+                }
+                usbMux = IphoneCarPlayConfiguration.usbMuxInterface(configuration)
+                    ?: throw IphoneUsbException.Protocol("CarPlay configuration exposes no USBMUX interface")
+            } else {
+                usbMux = IphoneCarPlayConfiguration.usbMuxInterfaceOnDevice(device)
+                    ?: throw IphoneUsbException.Protocol(
+                        "Re-enumerated iPhone exposes no USBMUX CarPlay interfaces (pre-21)",
+                    )
             }
-            val usbMux = IphoneCarPlayConfiguration.usbMuxInterface(configuration)
-                ?: throw IphoneUsbException.Protocol("CarPlay configuration exposes no USBMUX interface")
             val endpoints = IphoneCarPlayConfiguration.usbMuxEndpoints(usbMux)
                 ?: throw IphoneUsbException.Protocol("USBMUX interface exposes no bulk endpoint pair")
             Log.i(
                 IphoneCarPlayConfiguration.TAG,
-                "usbmux config=${configuration.id} iface=${usbMux.id} alt=${usbMux.alternateSetting} " +
+                "usbmux iface=${usbMux.id} alt=${usbMux.alternateSetting} " +
                     "class=${usbMux.interfaceClass}/${usbMux.interfaceSubclass}/${usbMux.interfaceProtocol} " +
                     "endpoints=${usbMux.endpointCount} " +
                     "out=${describeUsbEndpoint(endpoints.first)} " +

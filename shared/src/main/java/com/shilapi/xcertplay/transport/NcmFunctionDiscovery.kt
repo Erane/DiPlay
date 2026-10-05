@@ -1,6 +1,7 @@
 package com.shilapi.xcertplay.transport
 
 import android.hardware.usb.UsbConfiguration
+import android.hardware.usb.UsbDevice
 import android.hardware.usb.UsbConstants
 import android.hardware.usb.UsbEndpoint
 import android.hardware.usb.UsbInterface
@@ -30,6 +31,26 @@ object NcmFunctionDiscovery {
 
     fun find(configuration: UsbConfiguration): NcmFunction? {
         return findCdcNcm(configuration)
+    }
+
+    /** Pre-21 variant: the device-level interfaces of the ACTIVE (CarPlay) configuration. */
+    fun findOnDevice(device: UsbDevice): NcmFunction? {
+        val interfaces = (0 until device.interfaceCount).map(device::getInterface)
+        val control = interfaces.firstOrNull {
+            it.interfaceClass == CONTROL_CLASS && it.interfaceSubclass == CONTROL_SUBCLASS
+        } ?: return null
+        val data = interfaces
+            .filter { it.interfaceClass == DATA_CLASS && bulkEndpoints(it) != null }
+            .minByOrNull { if (it.alternateSetting == DATA_ALTERNATE_SETTING) 0 else 1 }
+            ?: return null
+        val endpoints = bulkEndpoints(data) ?: return null
+        val statusIn = (0 until control.endpointCount)
+            .map(control::getEndpoint)
+            .singleOrNull {
+                it.direction == UsbConstants.USB_DIR_IN &&
+                    it.type == UsbConstants.USB_ENDPOINT_XFER_INT
+            }
+        return NcmFunction(control, data, statusIn, endpoints.first, endpoints.second)
     }
 
     private fun findCdcNcm(configuration: UsbConfiguration): NcmFunction? {

@@ -345,7 +345,14 @@ class NcmUsbBridge internal constructor(
                     }
                     claimed.add(function.data)
                 }
-                val altSelected = connection.setInterface(function.data)
+                // UsbDeviceConnection.setInterface is API 21; pre-21 issues SET_INTERFACE directly.
+                val altSelected = if (Build.VERSION.SDK_INT >= 21) {
+                    connection.setInterface(function.data)
+                } else {
+                    connection.controlTransfer(
+                        0x01, 0x01, function.data.alternateSetting, function.data.id, null, 0, 0,
+                    ) >= 0
+                }
                 Log.i(
                     IphoneCarPlayConfiguration.TAG,
                     "setInterface iface=${function.data.id}/${function.data.alternateSetting} ok=$altSelected",

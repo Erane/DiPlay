@@ -143,6 +143,9 @@ class LegacyCarPlayActivity : Activity() {
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == MIC_REQUEST) {
+            appendLog(if (resultCode == RESULT_OK) "麦克风权限授予" else "麦克风权限被拒（通话不可用）")
+        }
         if (requestCode == VPN_REQUEST) {
             if (resultCode == RESULT_OK) {
                 appendLog("VPN 授权成功")
@@ -172,12 +175,16 @@ class LegacyCarPlayActivity : Activity() {
     private fun startSession() {
         if (shuttingDown.get()) return
         // The wired session routes AirPlay through CarPlayVpnService; consent must be granted
-        // before the controller can establish the tunnel.
-        val consent = CarPlayVpnService.prepare(this)
-        if (consent != null) {
-            setStatus("请在弹窗中允许 VPN 连接（CarPlay 网络需要）")
-            startActivityForResult(consent, VPN_REQUEST)
-            return
+        // before the controller can establish the tunnel. Wireless runs over the Wi-Fi network
+        // and does not need it (the Compose host gates the same way).
+        val wireless = intent.getBooleanExtra(EXTRA_WIRELESS, false)
+        if (!wireless) {
+            val consent = CarPlayVpnService.prepare(this)
+            if (consent != null) {
+                setStatus("请在弹窗中允许 VPN 连接（CarPlay 网络需要）")
+                startActivityForResult(consent, VPN_REQUEST)
+                return
+            }
         }
         restartGeneration += 1
         val generation = restartGeneration
@@ -275,6 +282,11 @@ class LegacyCarPlayActivity : Activity() {
     private fun buildRuntimeConfig(identity: com.shilapi.xcertplay.airplay.AirPlayIdentity): CarPlayRuntimeConfig {
         val mfiTarget = AirPlayPersistence.loadMfiTarget(this)
         val wireless = intent.getBooleanExtra(EXTRA_WIRELESS, false)
+        if (Build.VERSION.SDK_INT >= 23 && !wireless &&
+            checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED
+        ) {
+            requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), MIC_REQUEST)
+        }
         val deviceId = DiPlayBootstrap.deviceId(identity)
         return CarPlayRuntimeConfig(
             mfiTarget = mfiTarget,
@@ -325,7 +337,8 @@ class LegacyCarPlayActivity : Activity() {
             main = baseDisplay,
             cluster = null,
             rightHandDrive = false,
-            hevc = AirPlayPersistence.loadHevcEnabled(this),
+            // Old SoCs in these units have H264 but rarely HEVC hardware decode.
+            hevc = false,
             microphone = micAvailable(),
             manufacturer = "DiPlay",
             model = Build.MODEL ?: "legacy",
@@ -500,6 +513,7 @@ class LegacyCarPlayActivity : Activity() {
     companion object {
         private const val TAG = "DiPlay-Legacy"
         const val VPN_REQUEST = 4001
+        const val MIC_REQUEST = 4002
         internal const val EXTRA_WIRELESS = "wireless"
         private const val MAX_RECONNECT_ATTEMPTS = 5
         // CarPlayHostActivity's screen ids (110 main / 111 alt) - same wire values.
