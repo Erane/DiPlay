@@ -56,6 +56,9 @@ class LegacyHomeActivity : Activity() {
             status.text = "正在启动 CarPlay…"
             startActivity(Intent(this, LegacyCarPlayActivity::class.java))
         })
+        root.addView(button("无线（车机热点模式）") {
+            showWirelessDialog()
+        })
         root.addView(button("诊断信息") {
             startActivity(Intent(this, com.shilapi.xcertplay.DiPlayProbeActivity::class.java))
         })
@@ -67,6 +70,40 @@ class LegacyHomeActivity : Activity() {
             setPadding(0, pad * 2, 0, 0)
         })
         setContentView(root)
+    }
+
+    private fun showWirelessDialog() {
+        val ssidInput = android.widget.EditText(this).apply {
+            hint = "车机热点名称 (SSID)"
+            setText(com.shilapi.xcertplay.AirPlayPersistence.loadExistingWifiSsid(this@LegacyHomeActivity))
+        }
+        val passInput = android.widget.EditText(this).apply {
+            hint = "车机热点密码"
+            setText(com.shilapi.xcertplay.AirPlayPersistence.loadExistingWifiPassphrase(this@LegacyHomeActivity))
+        }
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(48, 24, 48, 0)
+            addView(TextView(this@LegacyHomeActivity).apply {
+                text = "先在车机设置里开启热点，让 iPhone 连上热点；然后填写热点的名称和密码。"
+                textSize = 13f
+            })
+            addView(ssidInput)
+            addView(passInput)
+        }
+        android.app.AlertDialog.Builder(this)
+            .setTitle("无线 CarPlay（车机热点）")
+            .setView(box)
+            .setPositiveButton("保存并连接") { _, _ ->
+                com.shilapi.xcertplay.AirPlayPersistence.saveExistingWifiCredentials(
+                    this, ssidInput.text.toString().trim(), passInput.text.toString(),
+                )
+                val intent = Intent(this, LegacyCarPlayActivity::class.java)
+                intent.putExtra(LegacyCarPlayActivity.EXTRA_WIRELESS, true)
+                startActivity(intent)
+            }
+            .setNegativeButton("取消", null)
+            .show()
     }
 
     override fun onResume() {

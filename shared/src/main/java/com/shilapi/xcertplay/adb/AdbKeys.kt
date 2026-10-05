@@ -1,5 +1,7 @@
 package com.shilapi.xcertplay.adb
 
+import com.shilapi.xcertplay.compatNoBackupFilesDir
+
 import android.content.Context
 import java.io.File
 import java.math.BigInteger
@@ -32,7 +34,7 @@ object AdbKeys {
     /** Loads the key from app-private storage, or makes one on first use. */
     @Synchronized
     fun load(context: Context): KeyPair {
-        val dir = File(context.noBackupFilesDir, DIR)
+        val dir = File(context.compatNoBackupFilesDir(), DIR)
         val privateFile = File(dir, PRIVATE)
         val publicFile = File(dir, PUBLIC)
         runCatching {

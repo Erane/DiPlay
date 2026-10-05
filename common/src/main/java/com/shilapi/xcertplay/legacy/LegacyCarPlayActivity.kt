@@ -19,6 +19,10 @@ import android.view.ViewGroup
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
+import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import com.shilapi.xcertplay.AirPlayPersistence
 import com.shilapi.xcertplay.DiPlayBootstrap
 import com.shilapi.xcertplay.DiPlayBluetooth
@@ -36,12 +40,14 @@ import com.shilapi.xcertplay.airplay.AirPlayIcon
 import com.shilapi.xcertplay.airplay.AirPlaySession
 import com.shilapi.xcertplay.airplay.AirPlaySessionListener
 import com.shilapi.xcertplay.airplay.CarPlayMediaEngine
+import com.shilapi.xcertplay.network.CarPlayVpnService
 import com.shilapi.xcertplay.location.AndroidCarPlayLocationProvider
 import com.shilapi.xcertplay.media.AndroidMediaSink
 import com.shilapi.xcertplay.media.CarPlayTouchMapper
 import com.shilapi.xcertplay.orchestration.CarPlayController
 import com.shilapi.xcertplay.orchestration.CarPlayRuntimeConfig
 import com.shilapi.xcertplay.orchestration.CarPlayStatus
+import com.shilapi.xcertplay.orchestration.WirelessHotspotMode
 import com.shilapi.xcertplay.orchestration.CarPlayTransport
 import com.shilapi.xcertplay.orchestration.MfiTarget
 import com.shilapi.xcertplay.transport.EvChargingConnectors
@@ -124,7 +130,28 @@ class LegacyCarPlayActivity : Activity() {
                 Gravity.BOTTOM))
         }
         setContentView(root)
+        runCatching {
+            getExternalFilesDir(null)?.let { dir ->
+                dir.mkdirs()
+                val profile = "显示版本 ${Build.VERSION.RELEASE} / 真实 SDK ${Build.VERSION.SDK_INT} / " +
+                    "硬件 ${Build.HARDWARE} / 内核 ${System.getProperty("os.version")}"
+                File(dir, "legacy-log.txt").appendText("==== ${SimpleDateFormat("MM-dd HH:mm:ss", Locale.US).format(Date())} 会话开始 ====\n$profile\n")
+            }
+        }
         appendLog("compat-4.4 CarPlay 宿主已启动 SDK=${Build.VERSION.SDK_INT}")
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == VPN_REQUEST) {
+            if (resultCode == RESULT_OK) {
+                appendLog("VPN 授权成功")
+                startSession()
+            } else {
+                setStatus("VPN 授权被拒绝：CarPlay 需要它建立到 iPhone 的网络通路")
+                appendLog("VPN 授权被拒绝")
+            }
+        }
     }
 
     override fun onResume() {
@@ -144,6 +171,14 @@ class LegacyCarPlayActivity : Activity() {
 
     private fun startSession() {
         if (shuttingDown.get()) return
+        // The wired session routes AirPlay through CarPlayVpnService; consent must be granted
+        // before the controller can establish the tunnel.
+        val consent = CarPlayVpnService.prepare(this)
+        if (consent != null) {
+            setStatus("请在弹窗中允许 VPN 连接（CarPlay 网络需要）")
+            startActivityForResult(consent, VPN_REQUEST)
+            return
+        }
         restartGeneration += 1
         val generation = restartGeneration
         setStatus("准备 CarPlay 身份…")
@@ -239,6 +274,7 @@ class LegacyCarPlayActivity : Activity() {
 
     private fun buildRuntimeConfig(identity: com.shilapi.xcertplay.airplay.AirPlayIdentity): CarPlayRuntimeConfig {
         val mfiTarget = AirPlayPersistence.loadMfiTarget(this)
+        val wireless = intent.getBooleanExtra(EXTRA_WIRELESS, false)
         val deviceId = DiPlayBootstrap.deviceId(identity)
         return CarPlayRuntimeConfig(
             mfiTarget = mfiTarget,
@@ -264,7 +300,10 @@ class LegacyCarPlayActivity : Activity() {
             hostName = "diplay-" + deviceId.replace(":", "").lowercase(),
             hostMac = deviceId.split(":").map { it.toInt(16).toByte() }.toByteArray(),
             wirelessBluetoothDeviceAddress = DiPlayPreferences.phoneAddress(this),
-            transport = CarPlayTransport.WIRED,
+            transport = if (wireless) CarPlayTransport.WIRELESS else CarPlayTransport.WIRED,
+            wirelessHotspotMode = if (wireless) WirelessHotspotMode.EXISTING_WIFI else WirelessHotspotMode.WIFI_P2P,
+            existingWifiSsid = if (wireless) AirPlayPersistence.loadExistingWifiSsid(this) else "",
+            existingWifiPassphrase = if (wireless) AirPlayPersistence.loadExistingWifiPassphrase(this) else "",
             locationReportingEnabled = false,
         )
     }
@@ -458,9 +497,11 @@ class LegacyCarPlayActivity : Activity() {
         }
     }
 
-    private companion object {
-        const val TAG = "DiPlay-Legacy"
-        const val MAX_RECONNECT_ATTEMPTS = 5
+    companion object {
+        private const val TAG = "DiPlay-Legacy"
+        const val VPN_REQUEST = 4001
+        internal const val EXTRA_WIRELESS = "wireless"
+        private const val MAX_RECONNECT_ATTEMPTS = 5
         // CarPlayHostActivity's screen ids (110 main / 111 alt) - same wire values.
         const val SCREEN_TYPE_MAIN = 110
         const val SCREEN_TYPE_ALT = 111

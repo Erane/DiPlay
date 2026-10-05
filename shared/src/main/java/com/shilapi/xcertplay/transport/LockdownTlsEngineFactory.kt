@@ -40,9 +40,8 @@ object LockdownTlsEngineFactory {
                 load(null, password)
                 setKeyEntry(KEY_ALIAS, privateKey, password, arrayOf(certificate))
             }
-            val keyManagers = KeyManagerFactory.getInstance("PKIX").apply {
-                init(keyStore, password)
-            }.keyManagers
+            // "PKIX" is not registered by every old ROM's JSSE provider; walk the classic names.
+            val keyManagers = keyManagerFactory(password, keyStore).keyManagers
             val context = SSLContext.getInstance("TLS").apply {
                 init(keyManagers, arrayOf(UsbLockdownTrustManager), null)
             }
@@ -53,6 +52,11 @@ object LockdownTlsEngineFactory {
                 if (Build.VERSION.SDK_INT >= 24) {
                     sslParameters = sslParameters.apply { endpointIdentificationAlgorithm = null }
                 }
+                // Android 4.1-4.4 do not enable TLSv1.2 by default; turn on everything the
+                // provider supports except the broken SSLv3 so the pairing can pick TLS 1.2.
+                runCatching {
+                    enabledProtocols = supportedProtocols.filter { !it.startsWith("SSL") }.toTypedArray()
+                }
             }
         } finally {
             password.fill('\u0000')
@@ -60,6 +64,24 @@ object LockdownTlsEngineFactory {
             certificatePem.fill(0)
             privateKeyDer?.fill(0)
         }
+    }
+
+    private fun keyManagerFactory(password: CharArray, keyStore: KeyStore): KeyManagerFactory {
+        val algorithms = listOf(
+            KeyManagerFactory.getDefaultAlgorithm(),
+            "PKIX",
+            "SunX509",
+            "X509",
+        ).filterNotNull().filter { it.isNotBlank() }.distinct()
+        var last: GeneralSecurityException? = null
+        for (algorithm in algorithms) {
+            try {
+                return KeyManagerFactory.getInstance(algorithm).apply { init(keyStore, password) }
+            } catch (error: GeneralSecurityException) {
+                last = error
+            }
+        }
+        throw last ?: GeneralSecurityException("No KeyManagerFactory algorithm available")
     }
 
     private fun decodePkcs8Pem(pem: ByteArray): ByteArray {

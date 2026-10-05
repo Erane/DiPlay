@@ -69,6 +69,9 @@ internal object CarPlayMediaKeys {
 
     @Synchronized
     fun attach(context: Context, next: CarPlayController) {
+        // MediaSession needs API 21; on Android 4.3/4.4 units the media keys/now-playing
+        // surface is skipped entirely rather than crashing the session.
+        if (Build.VERSION.SDK_INT < 21) return
         if (controller !== next) {
             releaseLocked()
             artworkOwner = artworkQueue.newSession()
@@ -83,6 +86,7 @@ internal object CarPlayMediaKeys {
     /** Ends key handling for [expected]; a newer controller's state is left alone. */
     @Synchronized
     fun detach(expected: CarPlayController?) {
+        if (Build.VERSION.SDK_INT < 21) return
         if (expected == null || controller !== expected) return
         expected.playbackListener = null
         expected.nowPlayingListener = null
@@ -93,6 +97,7 @@ internal object CarPlayMediaKeys {
 
     /** Called when CarPlay music starts or stops; may run on any thread. */
     fun onMediaAudioChanged(active: Boolean) {
+        if (Build.VERSION.SDK_INT < 21) return
         mainHandler.post { synchronized(this) { updateLocked(active) } }
     }
 
@@ -291,9 +296,9 @@ internal object CarPlayMediaKeys {
     private fun shownArtworkLocked(): Bitmap? =
         artwork ?: placeholder ?: appContext?.let(::placeholderArt)?.also { placeholder = it }
 
-    internal fun placeholderArt(context: Context): Bitmap? = context
-        .getDrawable(R.drawable.art_now_playing_placeholder)
-        ?.toBitmap(MAX_ARTWORK_DIMENSION, MAX_ARTWORK_DIMENSION)
+    internal fun placeholderArt(context: Context): Bitmap? =
+        androidx.core.content.ContextCompat.getDrawable(context, R.drawable.art_now_playing_placeholder)
+            ?.toBitmap(MAX_ARTWORK_DIMENSION, MAX_ARTWORK_DIMENSION)
 
     /**
      * The art to show once the iPhone names transfer [id]. A pending transfer keeps [current], so the

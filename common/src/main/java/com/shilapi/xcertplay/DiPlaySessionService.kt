@@ -35,7 +35,12 @@ class DiPlaySessionService : Service() {
             .setContentTitle("DiPlay")
             .setContentText("CarPlay connection running")
             .setContentIntent(open).setOngoing(true)
-            .addAction(Notification.Action.Builder(null, "Disconnect", stop).build()).build()
+            .apply {
+                // Notification.Action.Builder is API 20; Android 4.3 keeps the plain notification.
+                if (Build.VERSION.SDK_INT >= 20) {
+                    addAction(Notification.Action.Builder(null, "Disconnect", stop).build())
+                }
+            }.build()
         if (Build.VERSION.SDK_INT >= 29) {
             var types = ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE
             if (Build.VERSION.SDK_INT >= 30 && checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {

@@ -1,6 +1,7 @@
 package com.shilapi.xcertplay.media
 
 import android.media.MediaCodec
+import android.os.Build
 import android.media.MediaFormat
 import android.util.Log
 import java.io.Closeable
@@ -53,7 +54,7 @@ internal class OpusEncoder(bitrate: Int) : Closeable {
             return emptyList()
         }
         if (inputIndex >= 0) {
-            val input = codec.getInputBuffer(inputIndex)
+            val input = if (Build.VERSION.SDK_INT >= 21) codec.getInputBuffer(inputIndex) else codec.getInputBuffers()[inputIndex]
             if (input == null || pcm.size > input.remaining()) {
                 codec.queueInputBuffer(inputIndex, 0, 0, presentationTimeUs, 0)
             } else {
@@ -90,7 +91,7 @@ internal class OpusEncoder(bitrate: Int) : Closeable {
                         codec.releaseOutputBuffer(index, false)
                         continue
                     }
-                    val buffer = codec.getOutputBuffer(index)
+                    val buffer = if (Build.VERSION.SDK_INT >= 21) codec.getOutputBuffer(index) else codec.getOutputBuffers()[index]
                     if (buffer != null && bufferInfo.size > 0) {
                         val bytes = ByteArray(bufferInfo.size)
                         buffer.position(bufferInfo.offset)
