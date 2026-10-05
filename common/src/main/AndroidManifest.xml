@@ -32,15 +32,37 @@
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/diagnostic_report_paths" />
         </provider>
-        <activity android:name="com.shilapi.xcertplay.DiPlayActivity"
-            android:exported="true" android:launchMode="singleTop"
-            android:resizeableActivity="true"
-            android:configChanges="density|keyboardHidden|orientation|screenLayout|screenSize|smallestScreenSize|uiMode"
-            android:theme="@style/Theme.Xcertplay">
+                <!-- compat-4.4: single launcher routes modern units to the Compose UI and
+             pre-21 units to the View-based legacy home. -->
+        <activity
+            android:name="com.shilapi.xcertplay.legacy.LegacyRouterActivity"
+            android:exported="true" android:label="DiPlay"
+            android:theme="@android:style/Theme.Holo.Light.NoActionBar">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+        </activity>
+        <activity android:name="com.shilapi.xcertplay.legacy.LegacyHomeActivity" android:exported="false" />
+        <activity
+            android:name="com.shilapi.xcertplay.legacy.LegacyCarPlayActivity"
+            android:exported="true" android:launchMode="singleTask"
+            android:theme="@android:style/Theme.Holo.Light.NoActionBar"
+            android:configChanges="density|keyboardHidden|orientation|screenLayout|screenSize|smallestScreenSize|uiMode"
+            android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED" />
+            </intent-filter>
+            <meta-data
+                android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED"
+                android:resource="@xml/usb_device_filter" />
+        </activity>
+
+<activity android:name="com.shilapi.xcertplay.DiPlayActivity"
+            android:exported="true" android:launchMode="singleTop"
+            android:resizeableActivity="true"
+            android:configChanges="density|keyboardHidden|orientation|screenLayout|screenSize|smallestScreenSize|uiMode"
+            android:theme="@style/Theme.Xcertplay">
         </activity>
         <!-- Dependency-free diagnostic launcher: shows the real platform and any crash traces
              directly on units whose ROM swallows crash dialogs. -->
