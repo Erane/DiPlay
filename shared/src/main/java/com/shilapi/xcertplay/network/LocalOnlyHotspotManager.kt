@@ -1,5 +1,6 @@
 package com.shilapi.xcertplay.network
 
+import android.annotation.SuppressLint
 import android.content.Context
 import android.net.ConnectivityManager
 import android.net.MacAddress
@@ -30,6 +31,9 @@ import java.util.concurrent.TimeUnit
  * the AP interface is usable. The reservation and multicast lock stay owned by this instance
  * until [close].
  */
+// Wireless-only manager (local-only hotspot is API 26+); reachable only via startWirelessHotspot,
+// which rejects Android 6-9 with a WirelessStartupException before any manager is constructed.
+@SuppressLint("NewApi")
 class LocalOnlyHotspotManager(context: Context, private val onDiagnostic: (String) -> Unit = {}) : WirelessHotspotManager {
     private val connectivityManager =
         context.applicationContext.getSystemService(ConnectivityManager::class.java)

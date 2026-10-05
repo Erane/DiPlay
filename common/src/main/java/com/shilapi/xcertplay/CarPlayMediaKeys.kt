@@ -215,6 +215,8 @@ internal object CarPlayMediaKeys {
         nowPlaying = CarPlayNowPlaying()
         artwork = null
         artworkCache.clear()
+        // focusRequest is only built on API 26+, so on older units this never touches the new API.
+        @Suppress("NewApi")
         focusRequest?.let { request -> appContext?.getSystemService(AudioManager::class.java)?.abandonAudioFocusRequest(request) }
         focusRequest = null
         if (legacyFocusStream != null) {

@@ -48,6 +48,9 @@ internal class BydStandaloneHudOutput private constructor(context: Context) {
         fun diagnostics(context: Context): String = buildString {
             appendLine("standaloneHudAvailable=${available(context)} sdk=${Build.VERSION.SDK_INT}")
             appendLine("firmware=${Build.FINGERPRINT}")
+            // longVersionCode/signingInfo are API 28 and only exist on the DiLink 5 firmware this
+            // targets; runCatching degrades the probe to a diagnostic line on older units.
+            @Suppress("NewApi")
             runCatching {
                 val info = context.packageManager.getPackageInfo(TARGET.packageName, PackageManager.GET_SIGNING_CERTIFICATES)
                 val receiver = context.packageManager.getReceiverInfo(TARGET, 0)

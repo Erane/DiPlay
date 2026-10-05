@@ -13,6 +13,9 @@ import java.io.File
 import java.net.NetworkInterface
 import java.util.Collections
 
+// Wireless-only diagnostics; reachable only via startWirelessHotspot, which rejects below API 29.
+// PublicTethering is constructed exclusively under SDK_INT >= 36.
+@SuppressLint("NewApi")
 internal class ManualHotspotInterfaces(
     private val context: Context,
     private val onDiagnostic: (String) -> Unit = {},

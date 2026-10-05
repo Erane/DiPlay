@@ -107,7 +107,8 @@ internal class AudioFocusCoordinator(
         runCatching { report(line) }
     }
 
-    @Suppress("DEPRECATION")
+    // request is only built on API 26+, so on older units this never touches the new API.
+    @Suppress("DEPRECATION", "NewApi")
     private fun abandonHeld() {
         request?.let { manager?.abandonAudioFocusRequest(it) }
         request = null
@@ -796,6 +797,11 @@ private fun MediaFormat.intOrNull(key: String): Int? =
         }
     }
 
+// AudioTrack.getUnderrunCount is API 24; older units report none, so underrun-based
+// rebuffering degrades to the queue-empty signal there.
+private val AudioTrack.underrunCountCompat: Int
+    get() = if (Build.VERSION.SDK_INT >= 24) underrunCount else 0
+
 /** Decodes AAC-LC/Opus to PCM and plays it, or plays wired LPCM directly. */
 private class AudioRenderer(
     val format: AudioFormat,
@@ -1385,7 +1391,7 @@ private class AudioRenderer(
 
     private fun startPlayback(track: AudioTrack) {
         diagnosticStage = "track-play"
-        underrunsAtPlaybackStart = track.underrunCount
+        underrunsAtPlaybackStart = track.underrunCountCompat
         track.play()
         playbackStarted = true
     }
@@ -1393,7 +1399,7 @@ private class AudioRenderer(
     private fun maintainPlaybackBuffer() {
         val track = track ?: return
         if (bufferProgress.shouldRebuffer(mappedChannel == AudioChannel.MEDIA, playbackStarted,
-                track.underrunCount > underrunsAtPlaybackStart, queue.isEmpty(), track.playbackHeadPosition)) {
+                track.underrunCountCompat > underrunsAtPlaybackStart, queue.isEmpty(), track.playbackHeadPosition)) {
             // The hardware buffer has actually drained. Pause without flushing or discarding PCM,
             // then use the configured start threshold again when music resumes.
             track.pause()
@@ -1413,7 +1419,7 @@ private class AudioRenderer(
         val now = System.nanoTime()
         if (statsWindowStartNs == 0L) statsWindowStartNs = now
         if (!force && now - statsWindowStartNs < STATS_WINDOW_NS) return
-        val underruns = track?.underrunCount ?: 0
+        val underruns = track?.underrunCountCompat ?: 0
         val lastRx = lastArrivalNs.get()
         val currentTrack = track
         val playbackHeadFrames = currentTrack?.playbackHeadPosition

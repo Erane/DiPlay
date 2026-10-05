@@ -5,6 +5,7 @@ import android.hardware.usb.UsbEndpoint
 import android.hardware.usb.UsbInterface
 import android.hardware.usb.UsbConstants
 import android.hardware.usb.UsbRequest
+import android.os.Build
 import android.util.Log
 import java.io.Closeable
 import java.nio.ByteBuffer
@@ -219,6 +220,14 @@ class NcmUsbBridge internal constructor(
 
     private fun readChunk(timeoutMillis: Long): Int? {
         checkOpen()
+        if (Build.VERSION.SDK_INT < 26) {
+            // queue(ByteBuffer)/requestWait(timeout) are API 26; Android 6 polls synchronously.
+            // A null means "nothing this round" — the CarPlay TCP stream and the USBMUX keepalive
+            // write path own authoritative error detection, exactly as on the async path.
+            return connection.bulkTransfer(
+                inEndpoint, readBuffer, READ_CHUNK_BYTES, timeoutMillis.coerceAtLeast(1).toInt(),
+            ).takeIf { it > 0 }
+        }
         val request = try {
             // Publish and queue atomically with close(), so detach cannot miss a new request.
             synchronized(stateLock) {

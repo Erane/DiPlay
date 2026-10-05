@@ -1,5 +1,6 @@
 package com.shilapi.xcertplay.network
 
+import android.annotation.SuppressLint
 import android.content.Context
 import android.net.ConnectivityManager
 import android.net.LinkProperties
@@ -17,7 +18,9 @@ import java.net.InetAddress
 import java.net.NetworkInterface
 import java.util.concurrent.atomic.AtomicBoolean
 
-/** Attaches to an existing station network. Never creates an AP, joins Wi-Fi or changes routing. */
+// Wireless-only manager (existing Wi-Fi attach); reachable only via startWirelessHotspot, which
+// rejects Android 6-9. clearCapabilities is API 30, so Android 9 is also excluded upstream.
+@SuppressLint("NewApi")
 class ExistingWifiManager(
     context: Context,
     private val ssid: String,

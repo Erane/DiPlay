@@ -12,8 +12,8 @@ import android.hardware.usb.UsbDeviceConnection
 import android.hardware.usb.UsbEndpoint
 import android.hardware.usb.UsbInterface
 import android.hardware.usb.UsbManager
-import android.hardware.usb.UsbRequest
 import android.os.Build
+import android.hardware.usb.UsbRequest
 import android.util.Log
 import java.io.Closeable
 import java.io.IOException
@@ -337,6 +337,7 @@ class Iap2UsbSession internal constructor(
     private var closed = false
     private var failure: IphoneUsbException? = null
     private var pendingRead: UsbRequest? = null
+    private val bulkReadBuffer = ByteArray(USBMUX_READ_CHUNK_BYTES)
 
     fun write(data: ByteArray, timeoutMillis: Int) = synchronized(writeLock) {
         checkOpen()
@@ -354,6 +355,7 @@ class Iap2UsbSession internal constructor(
     fun read(timeoutMillis: Long): ByteArray? = synchronized(readLock) {
         checkOpen()
         require(timeoutMillis > 0) { "timeoutMillis must be positive" }
+        if (Build.VERSION.SDK_INT < 26) return@synchronized readBulkCompat(timeoutMillis)
         val request = UsbRequest()
         var initialized = false
         try {
@@ -402,6 +404,20 @@ class Iap2UsbSession internal constructor(
         }
     }
 
+    /**
+     * UsbRequest.queue(ByteBuffer) and requestWait(timeout) are API 26; Android 6 reads with the
+     * synchronous bulk transfer, which honors the same timeout. It cannot distinguish a timeout
+     * from an I/O error, so both return null — authoritative detach detection stays with the
+     * keepalive write path and the attach receiver.
+     */
+    private fun readBulkCompat(timeoutMillis: Long): ByteArray? {
+        val transferred = connection.bulkTransfer(
+            inEndpoint, bulkReadBuffer, bulkReadBuffer.size, timeoutMillis.coerceAtLeast(1).toInt(),
+        )
+        if (transferred <= 0) return null
+        return bulkReadBuffer.copyOf(transferred)
+    }
+
     override fun close() {
         val requestToCancel = synchronized(stateLock) {
             if (closed) return
@@ -421,6 +437,8 @@ class Iap2UsbSession internal constructor(
         if (closed) throw IphoneUsbException.DeviceUnavailable("USBMUX session is closed")
     }
 
+    /** Cancels the queued read of the timed-out async request. Async path only: API 26+. */
+    @Suppress("NewApi")
     private fun drainCancelledRead(request: UsbRequest) {
         if (!request.cancel()) {
             throw failSession("Android could not cancel timed out USBMUX read request")

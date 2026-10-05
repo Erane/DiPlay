@@ -2021,6 +2021,14 @@ class CarPlayController(
             type.equals("disable-bluetooth", ignoreCase = true)
 
     private fun startWirelessHotspot(generation: Int): WirelessHotspotInfo {
+        // Every wireless manager below Q relies on APIs that do not exist there (startLocalOnlyHotspot
+        // is API 26, Channel.close 27, MacAddress 28). Android 6-9 units are wired-only by design, so
+        // fail the wireless run with a clear message instead of crashing on a missing method.
+        if (Build.VERSION.SDK_INT < 29) {
+            throw WirelessStartupException(
+                WirelessStartupFailure.HOTSPOT_CONFIGURATION,
+                "Wireless CarPlay needs Android 10+ on this head unit; connect the iPhone with a USB cable.")
+        }
         val readyDeadline = System.nanoTime() + WirelessStartupPolicy.HOTSPOT_READY_MILLIS * 1_000_000
         val hotspotMode = if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q &&
             config.wirelessHotspotMode == WirelessHotspotMode.WIFI_P2P

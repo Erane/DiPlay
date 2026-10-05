@@ -12,8 +12,8 @@ import com.shilapi.xcertplay.host.R
 import com.shilapi.xcertplay.hud.BydNavigationOutputs
 import com.shilapi.xcertplay.orchestration.CarPlayController
 import com.shilapi.xcertplay.orchestration.CarPlayVideoListener
-import java.util.concurrent.CompletableFuture
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicLong
@@ -164,7 +164,16 @@ internal object CarPlayVideo : CarPlayVideoListener {
     /** What the iPhone answered to [resolveOnIphone]. */
     class LoadedUrl(val status: Int?, val data: ByteArray?, val location: String?)
 
-    private val pendingUrls = ConcurrentHashMap<Long, CompletableFuture<Map<*, *>>>()
+    // CompletableFuture needs API 24; a latch keeps the same blocking contract on Android 6.
+    private class PendingAnswer {
+        private val latch = CountDownLatch(1)
+        @Volatile private var answer: Map<*, *>? = null
+        fun complete(response: Map<*, *>?) { answer = response; latch.countDown() }
+        fun await(seconds: Long): Map<*, *>? =
+            if (latch.await(seconds, TimeUnit.SECONDS)) answer else null
+    }
+
+    private val pendingUrls = ConcurrentHashMap<Long, PendingAnswer>()
     private val nextUrlRequest = AtomicLong(1)
 
     /**
@@ -175,7 +184,7 @@ internal object CarPlayVideo : CarPlayVideoListener {
     fun resolveOnIphone(url: String): LoadedUrl? {
         val stream = streamId ?: return null
         val id = nextUrlRequest.getAndIncrement()
-        val answer = CompletableFuture<Map<*, *>>()
+        val answer = PendingAnswer()
         pendingUrls[id] = answer
         reply(stream, linkedMapOf(
             "type" to "unhandledURL",
@@ -189,7 +198,7 @@ internal object CarPlayVideo : CarPlayVideoListener {
         ))
         Log.i(TAG, "asked the iPhone to load a ${android.net.Uri.parse(url).scheme} URL request=$id")
         val response = try {
-            answer.get(URL_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            answer.await(URL_TIMEOUT_SECONDS)
         } catch (_: Exception) {
             Log.w(TAG, "no iPhone answer for request=$id")
             null

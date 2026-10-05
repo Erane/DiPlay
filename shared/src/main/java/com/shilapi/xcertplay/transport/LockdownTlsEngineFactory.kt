@@ -1,6 +1,7 @@
 package com.shilapi.xcertplay.transport
 
 import android.annotation.SuppressLint
+import android.os.Build
 import java.io.ByteArrayInputStream
 import java.nio.charset.StandardCharsets
 import java.security.GeneralSecurityException
@@ -48,7 +49,11 @@ object LockdownTlsEngineFactory {
             }
             return context.createSSLEngine(PEER_HOST, PEER_PORT).apply {
                 useClientMode = true
-                sslParameters = sslParameters.apply { endpointIdentificationAlgorithm = null }
+                // The setter is API 24 and null is already the default for an engine handed out
+                // by SSLContext, so Android 6 keeps the same (verification-free) behaviour.
+                if (Build.VERSION.SDK_INT >= 24) {
+                    sslParameters = sslParameters.apply { endpointIdentificationAlgorithm = null }
+                }
             }
         } finally {
             password.fill('\u0000')

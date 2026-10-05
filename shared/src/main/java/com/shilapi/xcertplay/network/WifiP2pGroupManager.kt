@@ -292,8 +292,13 @@ class WifiP2pGroupManager(
         if (removeGroup && activeChannel != null) {
             removeGroupBlocking(activeChannel)
         }
-        activeChannel?.close()
+        closeChannelCompat(activeChannel)
         activeThread?.quitSafely()
+    }
+
+    // WifiP2pManager.Channel.close is API 27; on older units the channel is simply dropped.
+    private fun closeChannelCompat(channel: WifiP2pManager.Channel?) {
+        if (Build.VERSION.SDK_INT >= 27) channel?.close()
     }
 
     private fun createChannelListener(
@@ -554,6 +559,8 @@ class WifiP2pGroupManager(
         val wifi = appContext.getSystemService(WifiManager::class.java)
         val fiveGhzSupported = runCatching { wifi?.is5GHzBandSupported }.getOrNull()
         val wifiEnabled = runCatching { wifi?.isWifiEnabled }.getOrNull()
+        // isLocationEnabled is API 28; runCatching also keeps older units at a null here.
+        @Suppress("NewApi")
         val locationEnabled = runCatching {
             appContext.getSystemService(LocationManager::class.java)?.isLocationEnabled
         }.getOrNull()
@@ -660,7 +667,7 @@ class WifiP2pGroupManager(
         if (removeGroup && failedChannel != null) {
             removeGroupBlocking(failedChannel)
         }
-        failedChannel?.close()
+        closeChannelCompat(failedChannel)
         failedThread?.quitSafely()
     }
 
