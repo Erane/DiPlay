@@ -59,6 +59,14 @@ android {
     buildFeatures {
         compose = true
     }
+    packaging {
+        jniLibs {
+            // AGP 9 defaults to uncompressed, page-aligned .so with extractNativeLibs=false.
+            // Android 6-7 package parsers/loaders cannot handle that; legacy packaging
+            // (compressed .so, extracted at install) works on every Android version.
+            useLegacyPackaging = true
+        }
+    }
 }
 
 dependencies {
