@@ -1251,6 +1251,13 @@ class CarPlayController(
             }
 
             onStatus(CarPlayStatus.ConnectingBluetooth)
+            // iOS answers iAP2 only on a real bond. Some 4.x car ROMs report BOND_NONE for entries
+            // that came out of the bond list, so this is recorded rather than used to gate.
+            debugLog(
+                "wireless Bluetooth preflight bondState=${device.bondState} " +
+                    "bonded=${device.bondState == BluetoothDevice.BOND_BONDED} " +
+                    "isConnected=${isBluetoothDeviceConnected(device)}",
+            )
             debugLog(
                 "wireless RFCOMM connecting address=${device.address} " +
                     "uuid=$IAP2_IPHONE_UUID",
@@ -1341,6 +1348,7 @@ class CarPlayController(
                 identification = bootstrapIdentification,
                 endpoint = endpoint,
                 timeoutMillis = controlLoopTimeoutMillis(),
+                handshakeTimeoutMillis = IAP2_HANDSHAKE_TIMEOUT_MILLIS,
                 beforeStartSession = { startedHotspot?.validateReady() },
                 onStartSessionSent = { watchdog.startSessionSent(it.sentAtNanos) },
                 onIncoming = ::onRouteFrame,
@@ -2712,6 +2720,9 @@ class CarPlayController(
         private const val DEVICE_AVAILABILITY_POLL_INTERVAL_MILLIS = 2_000L
         private const val WIRELESS_HANDOFF_TIMEOUT_MILLIS = 45_000L
         private const val RFCOMM_CONNECT_TIMEOUT_MILLIS = 15_000L
+        // Identification and MFi auth answer in under a second on a listening iPhone; waiting the
+        // whole control-loop deadline only hides "the phone never replies" for five minutes.
+        private const val IAP2_HANDSHAKE_TIMEOUT_MILLIS = 20_000L
         private const val MAXIMUM_REENUMERATION_ATTEMPTS = 2
         private const val EXECUTOR_CLOSE_TIMEOUT_MILLIS = 2_000L
         private const val ADAPTER_ADDRESS_PLACEHOLDER = "02:00:00:00:00:00"

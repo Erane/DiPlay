@@ -24,6 +24,7 @@ class Iap2WirelessControlClient(
         identification: Iap2IdentificationConfig,
         endpoint: Iap2WirelessCarPlayEndpoint,
         timeoutMillis: Long = DEFAULT_TIMEOUT_MILLIS,
+        handshakeTimeoutMillis: Long = MAX_TIMEOUT_MILLIS,
         locationProvider: Iap2LocationProvider? = null,
         vehicleStatusProvider: VehicleStatusProvider? = null,
         onReady: () -> Unit = {},
@@ -48,11 +49,14 @@ class Iap2WirelessControlClient(
         if (identified.vehicleStatusEnabled != identification.vehicleStatusEnabled) {
             onProgress("iap2 no battery reading: not declaring an electric vehicle")
         }
-        Iap2IdentificationClient(session).identify(identified, requireRemaining(deadlineNanos))
+        // A silent iPhone must not consume the whole control-loop deadline before anything is
+        // authenticated: the pre-auth stages get their own, shorter budget.
+        val handshakeMillis = minOf(requireRemaining(deadlineNanos), handshakeTimeoutMillis)
+        Iap2IdentificationClient(session).identify(identified, handshakeMillis)
         onProgress("iap2 identification accepted")
         var stage = Iap2WirelessControlStage.IDENTIFIED
 
-        mfi.run(session, requireRemaining(deadlineNanos), onProgress)
+        mfi.run(session, minOf(requireRemaining(deadlineNanos), handshakeMillis), onProgress)
         stage = Iap2WirelessControlStage.AUTHENTICATED
         onProgress("iap2 authentication accepted")
 
