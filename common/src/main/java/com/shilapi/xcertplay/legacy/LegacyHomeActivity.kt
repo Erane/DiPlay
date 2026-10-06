@@ -62,6 +62,25 @@ class LegacyHomeActivity : Activity() {
         root.addView(button("诊断信息") {
             startActivity(Intent(this, com.shilapi.xcertplay.DiPlayProbeActivity::class.java))
         })
+        root.addView(button("导出诊断日志（发送给开发者）") {
+            val text = buildString {
+                appendLine(com.shilapi.xcertplay.legacy.LegacyDiagnostics.platformReport(this@LegacyHomeActivity))
+                for (name in listOf(
+                    com.shilapi.xcertplay.legacy.LegacyDiagnostics.CRASH_FILE,
+                    com.shilapi.xcertplay.legacy.LegacyDiagnostics.STARTED_FILE,
+                    com.shilapi.xcertplay.legacy.LegacyDiagnostics.LOG_FILE,
+                )) {
+                    appendLine("==== $name ====")
+                    appendLine(com.shilapi.xcertplay.legacy.LegacyDiagnostics.readAll(this@LegacyHomeActivity, name) ?: "(无)")
+                }
+            }
+            val send = Intent(Intent.ACTION_SEND).apply {
+                type = "text/plain"
+                putExtra(Intent.EXTRA_SUBJECT, "DiPlay 诊断日志")
+                putExtra(Intent.EXTRA_TEXT, text)
+            }
+            startActivity(Intent.createChooser(send, "分享诊断日志"))
+        })
         root.addView(TextView(this).apply {
             text = "compat-4.4 分支 · 上游 0.2.12 · View 界面"
             textSize = 11f
