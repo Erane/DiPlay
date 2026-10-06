@@ -62,24 +62,23 @@ class LegacyHomeActivity : Activity() {
         root.addView(button("诊断信息") {
             startActivity(Intent(this, com.shilapi.xcertplay.DiPlayProbeActivity::class.java))
         })
-        root.addView(button("导出诊断日志（发送给开发者）") {
-            val text = buildString {
-                appendLine(com.shilapi.xcertplay.legacy.LegacyDiagnostics.platformReport(this@LegacyHomeActivity))
-                for (name in listOf(
-                    com.shilapi.xcertplay.legacy.LegacyDiagnostics.CRASH_FILE,
-                    com.shilapi.xcertplay.legacy.LegacyDiagnostics.STARTED_FILE,
-                    com.shilapi.xcertplay.legacy.LegacyDiagnostics.LOG_FILE,
-                )) {
-                    appendLine("==== $name ====")
-                    appendLine(com.shilapi.xcertplay.legacy.LegacyDiagnostics.readAll(this@LegacyHomeActivity, name) ?: "(无)")
+        root.addView(button("导出诊断日志（写入存储并分享）") {
+            val text = diagnosticText()
+            val written = com.shilapi.xcertplay.legacy.LegacyDiagnostics.saveSnapshot(
+                this@LegacyHomeActivity, text,
+            )
+            status.text = "日志已写入:\n" + written.joinToString("\n") { it.toString() }
+            runCatching {
+                val send = Intent(Intent.ACTION_SEND).apply {
+                    type = "text/plain"
+                    putExtra(Intent.EXTRA_SUBJECT, "DiPlay 诊断日志")
+                    putExtra(Intent.EXTRA_TEXT, text)
                 }
+                startActivity(Intent.createChooser(send, "分享诊断日志"))
+            }.onFailure {
+                status.text = status.text.toString() +
+                    "\n分享目标不可用(${it.javaClass.simpleName})：请改用上面的文件"
             }
-            val send = Intent(Intent.ACTION_SEND).apply {
-                type = "text/plain"
-                putExtra(Intent.EXTRA_SUBJECT, "DiPlay 诊断日志")
-                putExtra(Intent.EXTRA_TEXT, text)
-            }
-            startActivity(Intent.createChooser(send, "分享诊断日志"))
         })
         root.addView(TextView(this).apply {
             text = "compat-4.4 分支 · 上游 0.2.12 · View 界面"
@@ -89,6 +88,18 @@ class LegacyHomeActivity : Activity() {
             setPadding(0, pad * 2, 0, 0)
         })
         setContentView(root)
+    }
+
+    private fun diagnosticText(): String = buildString {
+        appendLine(com.shilapi.xcertplay.legacy.LegacyDiagnostics.platformReport(this@LegacyHomeActivity))
+        for (name in listOf(
+            com.shilapi.xcertplay.legacy.LegacyDiagnostics.CRASH_FILE,
+            com.shilapi.xcertplay.legacy.LegacyDiagnostics.STARTED_FILE,
+            com.shilapi.xcertplay.legacy.LegacyDiagnostics.LOG_FILE,
+        )) {
+            appendLine("==== $name ====")
+            appendLine(com.shilapi.xcertplay.legacy.LegacyDiagnostics.readAll(this@LegacyHomeActivity, name) ?: "(无)")
+        }
     }
 
     private fun showWirelessDialog() {

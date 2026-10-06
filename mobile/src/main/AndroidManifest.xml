@@ -27,6 +27,10 @@
         androidx.swiperefreshlayout, androidx.asynclayoutinflater,
         androidx.profileinstaller, androidx.startup, androidx.versionedparcelable, androidx.annotation.experimental" />
 
+    <!-- Below API 23 this is granted at install, and without it every public-storage diagnostic
+         target fails: the app then only ever lands files in dirs the unit's file manager hides. -->
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
+
     <application
         android:name="com.shilapi.xcertplay.DiPlayApplication"
         android:allowBackup="false"

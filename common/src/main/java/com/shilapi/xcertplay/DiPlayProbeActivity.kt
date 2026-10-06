@@ -68,6 +68,19 @@ class DiPlayProbeActivity : Activity() {
         appendLine()
         var found = false
         val probeContext = this@DiPlayProbeActivity
+        appendLine("诊断文件写入目标（导出日志的落点）:")
+        for ((label, dir) in com.shilapi.xcertplay.legacy.LegacyDiagnostics.targets(probeContext)) {
+            val present = listOf(
+                com.shilapi.xcertplay.legacy.LegacyDiagnostics.CRASH_FILE,
+                com.shilapi.xcertplay.legacy.LegacyDiagnostics.STARTED_FILE,
+                com.shilapi.xcertplay.legacy.LegacyDiagnostics.LOG_FILE,
+            ).filter { File(dir, it).exists() }
+            appendLine(
+                "  $label ${dir.absolutePath} exists=${dir.exists()} " +
+                    "canWrite=${dir.canWrite()} 已有=${if (present.isEmpty()) "无" else present.joinToString(",")}",
+            )
+        }
+        appendLine()
         for (name in listOf(
             com.shilapi.xcertplay.legacy.LegacyDiagnostics.CRASH_FILE,
             com.shilapi.xcertplay.legacy.LegacyDiagnostics.STARTED_FILE,
@@ -97,13 +110,10 @@ class DiPlayProbeActivity : Activity() {
     }
 
     private fun appendCrash(what: String, error: Throwable) {
-        val trace = java.io.StringWriter().also { java.io.PrintWriter(it).use { w -> error.printStackTrace(w) } }
-        val entry = "==== ${System.currentTimeMillis()} $what (SDK ${Build.VERSION.SDK_INT}) ====\n$trace\n"
-        for (dir in listOfNotNull(getExternalFilesDir(null), filesDir)) {
-            runCatching {
-                dir.mkdirs()
-                File(dir, "diplay-crash.txt").appendText(entry)
-            }
-        }
+        com.shilapi.xcertplay.legacy.LegacyDiagnostics.append(
+            this,
+            com.shilapi.xcertplay.legacy.LegacyDiagnostics.CRASH_FILE,
+            com.shilapi.xcertplay.legacy.LegacyDiagnostics.crashEntry(what, error),
+        )
     }
 }
