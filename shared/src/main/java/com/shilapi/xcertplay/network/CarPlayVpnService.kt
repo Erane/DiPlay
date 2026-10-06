@@ -2,6 +2,7 @@ package com.shilapi.xcertplay.network
 
 import android.content.Context
 import android.content.Intent
+import android.os.Build
 import android.net.VpnService
 import android.os.Binder
 import android.os.IBinder
@@ -92,16 +93,20 @@ class CarPlayVpnService : VpnService() {
             }
             require(hostMac.size == 6) { "hostMac must be 6 bytes" }
 
-            val tunFd = Builder()
+            val tunBuilder = Builder()
                 .addAddress(linkLocal, LINK_PREFIX)
                 .addRoute(LINK_LOCAL_ROUTE, LINK_PREFIX)
                 .setSession(SESSION_NAME)
                 .setMtu(TUN_MTU)
-                .setBlocking(true)
+            // setBlocking and addAllowedApplication are API 21; on 4.3/4.4 the VPN runs with
+            // default blocking and an unscoped UID list rather than failing establishment.
+            if (Build.VERSION.SDK_INT >= 21) {
+                tunBuilder.setBlocking(true)
                 // An empty app list routes every UID through this VPN. Scope it before establish;
                 // rejection must reach the existing attachment cleanup, never an unscoped retry.
-                .addAllowedApplication(packageName)
-                .establish()
+                tunBuilder.addAllowedApplication(packageName)
+            }
+            val tunFd = tunBuilder.establish()
                 ?: throw IOException("VpnService.establish returned null")
             tun = tunFd
 
