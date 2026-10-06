@@ -210,6 +210,25 @@ class LegacyCarPlayActivity : Activity() {
         interfaceWatcher = null
     }
 
+    /**
+     * AirPlay's default port 7000 is frequently held by the unit's bundled adapter app or the
+     * ROM cast service (observed EADDRINUSE on the K2X). Pick the first free port from the
+     * AirPlay range; the chosen port is advertised to the iPhone over iAP2 (0.2.10 feature).
+     */
+    private fun pickAirPlayPort(): Int {
+        for (port in 7000..7010) {
+            try {
+                java.net.ServerSocket().use { socket ->
+                    socket.bind(java.net.InetSocketAddress(port))
+                    return port
+                }
+            } catch (error: java.io.IOException) {
+                appendLog("端口 $port 被占用，尝试下一个")
+            }
+        }
+        return 7000
+    }
+
     private fun micAvailable(): Boolean =
         Build.VERSION.SDK_INT < 23 ||
             checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
@@ -385,11 +404,14 @@ class LegacyCarPlayActivity : Activity() {
             fps = AirPlayDisplaySettings.DEFAULT_FPS,
             primaryInputDevice = 1,
         )
+        val chosenPort = pickAirPlayPort()
+        appendLog("AirPlay 端口选择: $chosenPort")
         return AirPlayConfig(
             deviceName = "DiPlay",
             deviceId = DiPlayBootstrap.deviceId(identity),
             btMac = DiPlayBluetooth.localAddress(this) ?: DiPlayBootstrap.deviceId(identity),
             sourceVersion = "950.7.1",
+            port = chosenPort,
             main = baseDisplay,
             cluster = null,
             rightHandDrive = false,
