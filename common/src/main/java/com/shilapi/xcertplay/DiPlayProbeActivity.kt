@@ -55,6 +55,17 @@ class DiPlayProbeActivity : Activity() {
         )
         appendLine("指纹: ${Build.FINGERPRINT}")
         appendLine()
+        appendLine("网络接口:")
+        runCatching {
+            val enumerated = java.net.NetworkInterface.getNetworkInterfaces()?.toList().orEmpty()
+            for (iface in enumerated) {
+                val addrs = iface.inetAddresses.toList()
+                    .joinToString(",") { it.hostAddress ?: "" }
+                appendLine("  ${iface.name} up=${iface.isUp} [$addrs]")
+            }
+            if (enumerated.isEmpty()) appendLine("  (无)")
+        }.onFailure { appendLine("  (枚举失败: $it)") }
+        appendLine()
         var found = false
         for (name in listOf("diplay-crash.txt", "diplay-started.txt")) {
             for (dir in listOf(getExternalFilesDir(null), filesDir)) {

@@ -168,6 +168,48 @@ class LegacyCarPlayActivity : Activity() {
         }
     }
 
+    /** All non-loopback IPv4s of Wi-Fi-ish interfaces, for spotting AP bounce in the log. */
+    private fun interfaceSnapshot(): String = runCatching {
+        val lines = mutableListOf<String>()
+        val enumerated = java.net.NetworkInterface.getNetworkInterfaces()?.toList().orEmpty()
+        for (iface in enumerated) {
+            val addrs = iface.inetAddresses.toList()
+                .filterIsInstance<java.net.Inet4Address>()
+                .joinToString(",") { it.hostAddress ?: "" }
+            lines += "${iface.name}(up=${iface.isUp} ipv4=[$addrs])"
+        }
+        lines.joinToString(" ")
+    }.getOrDefault("(枚举失败)")
+
+    private var interfaceWatcher: Thread? = null
+    @Volatile private var watchingInterfaces = false
+
+    private fun startInterfaceWatcher() {
+        if (watchingInterfaces) return
+        watchingInterfaces = true
+        interfaceWatcher = Thread({
+            var last = ""
+            while (watchingInterfaces) {
+                val snapshot = interfaceSnapshot()
+                if (snapshot != last) {
+                    appendLog("接口状态: $snapshot")
+                    last = snapshot
+                }
+                try {
+                    Thread.sleep(2000)
+                } catch (_: InterruptedException) {
+                    return@Thread
+                }
+            }
+        }, "diplay-iface-watcher").apply { isDaemon = true; start() }
+    }
+
+    private fun stopInterfaceWatcher() {
+        watchingInterfaces = false
+        interfaceWatcher?.interrupt()
+        interfaceWatcher = null
+    }
+
     private fun micAvailable(): Boolean =
         Build.VERSION.SDK_INT < 23 ||
             checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
@@ -285,6 +327,7 @@ class LegacyCarPlayActivity : Activity() {
                 startService(Intent(this, DiPlaySessionService::class.java))
             }
             appendLog("会话启动…")
+            startInterfaceWatcher()
             next.start()
         } catch (error: RuntimeException) {
             appendLog("会话启动失败: ${error.javaClass.simpleName}")
@@ -478,13 +521,31 @@ class LegacyCarPlayActivity : Activity() {
         reconnectScheduled = true
         reconnectAttempts += 1
         val delay = (3000L * reconnectAttempts).coerceAtMost(15000L)
-        appendLog("${delay / 1000} 秒后重连（第 $reconnectAttempts 次）")
+        appendLog("${delay / 1000} 秒后重连（第 $reconnectAttempts 次，等待网络接口稳定）")
         mainHandler.postDelayed({
             reconnectScheduled = false
-            if (!shuttingDown.get()) {
-                shutdown("重连", {})
-                startSession()
+            if (shuttingDown.get()) return@postDelayed
+            // If the AP interface is bouncing (driver reset per Bonjour registration), do not
+            // amplify the cycle: wait until the interface is present and stable before retrying.
+            var stableCount = 0
+            var lastSnapshot = interfaceSnapshot()
+            val stabilityCheck = object : Runnable {
+                override fun run() {
+                    if (shuttingDown.get()) { reconnectScheduled = false; return }
+                    val snapshot = interfaceSnapshot()
+                    stableCount = if (snapshot == lastSnapshot) stableCount + 1 else 0
+                    lastSnapshot = snapshot
+                    if (snapshot.contains("ipv4=[]") || snapshot.isBlank()) {
+                        stableCount = 0
+                    }
+                    if (stableCount < 3) {
+                        mainHandler.postDelayed(this, 1000)
+                        return
+                    }
+                    startSession()
+                }
             }
+            stabilityCheck.run()
         }, delay)
     }
 
@@ -501,6 +562,7 @@ class LegacyCarPlayActivity : Activity() {
         controller = null
         sink = null
         sessionActive = false
+        stopInterfaceWatcher()
         Log.i(TAG, "shutdown reason=$reason")
         Thread {
             runCatching { oldController?.close() }
