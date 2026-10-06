@@ -92,7 +92,6 @@ class DiPlayProbeActivity : Activity() {
                 textSize = 13f
                 setPadding(32, 32, 32, 32)
                 text = content
-                setTextIsSelectable(true)
             },
         )
     }
