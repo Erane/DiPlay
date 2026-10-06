@@ -2120,7 +2120,10 @@ class CarPlayController(
             hostAddress = address,
             bandLabel = "2.4 GHz (passive)",
             backend = com.shilapi.xcertplay.network.WirelessHotspotBackend.SYSTEM_HOTSPOT_PASSIVE,
-            hostAddresses = candidates.map { (_, a) -> a },
+            // ding2548-ui's Android 7 port proved these car kernels drop client-to-host traffic
+            // aimed at any address other than the advertised hotspot IPv4 - never advertise the
+            // full candidate list (community commit 78944fc0).
+            hostAddresses = listOf(address),
         )
     }
 

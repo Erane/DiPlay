@@ -85,7 +85,11 @@ class LegacyHomeActivity : Activity() {
             orientation = LinearLayout.VERTICAL
             setPadding(48, 24, 48, 0)
             addView(TextView(this@LegacyHomeActivity).apply {
-                text = "先在车机设置里开启热点，让 iPhone 连上热点；然后填写热点的名称和密码。（iPhone 需要与车机完成蓝牙配对）"
+                text = ("两种无线方式（iPhone 需与车机完成蓝牙配对）：\n" +
+                "A. 车机自带热点：车机开热点，iPhone 连上它；\n" +
+                "B. 共同外部热点（社区已在安卓 7 验证可行）：车机在设置里连入一个 Wi-Fi（另一台手机的热点/随身 Wi-Fi/家用路由），iPhone 也连入同一个网络。\n" +
+                "   注意：部分固件的自带热点无法打开 AirPlay 端口（安卓 7 移植者实测），外部热点是更可靠的无线路线。\n" +
+                "下方填写该网络的名称和密码。")
                 textSize = 13f
             })
             addView(ssidInput)
