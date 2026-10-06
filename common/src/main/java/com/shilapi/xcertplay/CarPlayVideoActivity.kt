@@ -315,7 +315,7 @@ class CarPlayVideoActivity : Activity() {
         .joinToString(" <- ") { "${it.javaClass.simpleName}(${it.message?.replace(Regex("\\w+://\\S+"), "<url>")})" }
 
     private fun playbackNetworkSummary(): String {
-        val manager = getSystemService(ConnectivityManager::class.java)
+        val manager = systemServiceCompat(this, ConnectivityManager::class.java)
         val network = manager?.activeNetwork
         val capabilities = network?.let(manager::getNetworkCapabilities)
         if (network == null || capabilities == null) return "network=none"

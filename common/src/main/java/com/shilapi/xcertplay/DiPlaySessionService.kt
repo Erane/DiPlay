@@ -22,7 +22,7 @@ class DiPlaySessionService : Service() {
             stopSelf()
             return START_NOT_STICKY
         }
-        val manager = getSystemService(NotificationManager::class.java)
+        val manager = systemServiceCompat(this, NotificationManager::class.java)!!
         // Notification channels exist only from API 26; Android 6-7 units use the legacy builder.
         if (Build.VERSION.SDK_INT >= 26) {
             manager.createNotificationChannel(NotificationChannel(CHANNEL, "CarPlay connection", NotificationManager.IMPORTANCE_LOW))

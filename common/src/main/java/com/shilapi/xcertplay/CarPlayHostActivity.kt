@@ -489,7 +489,7 @@ class CarPlayHostActivity : ComponentActivity() {
             finish(); return
         }
         window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        getSystemService(android.hardware.display.DisplayManager::class.java)
+        systemServiceCompat(this, android.hardware.display.DisplayManager::class.java)
             ?.registerDisplayListener(clusterDisplayListener, mainHandler)
         initializeSessionLog()
         lastConfiguration = Configuration(resources.configuration)
@@ -1151,7 +1151,7 @@ class CarPlayHostActivity : ComponentActivity() {
         AirPlayPersistence.overlaySettingsListener = null
         com.shilapi.xcertplay.hud.BydNavigationOutputs.setTurnOverlayListener(null)
         clusterMonitor?.stop()
-        getSystemService(android.hardware.display.DisplayManager::class.java)
+        systemServiceCompat(this, android.hardware.display.DisplayManager::class.java)
             ?.unregisterDisplayListener(clusterDisplayListener)
         mainHandler.removeCallbacks(hideIdleCenterMap)
         homeMonitor?.stop()

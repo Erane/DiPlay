@@ -97,7 +97,7 @@ class MapEmbedService : Service() {
             return
         }
         embeds.remove(client.binder)?.release()
-        val display = getSystemService(DisplayManager::class.java)?.getDisplay(data.getInt(KEY_DISPLAY_ID))
+        val display = systemServiceCompat(this, DisplayManager::class.java)?.getDisplay(data.getInt(KEY_DISPLAY_ID))
         if (display == null) {
             send(client, MSG_ERROR, Bundle().apply { putString(KEY_ERROR, ERROR_BAD_REQUEST) })
             return

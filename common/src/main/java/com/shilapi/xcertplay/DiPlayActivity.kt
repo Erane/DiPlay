@@ -1335,7 +1335,7 @@ class DiPlayActivity : ComponentActivity() {
             setPadding(0, dp(16), 0, dp(16))
         })
         body.addView(button(getString(R.string.copy_command), false) {
-            getSystemService(android.content.ClipboardManager::class.java).setPrimaryClip(
+            systemServiceCompat(this, android.content.ClipboardManager::class.java)?.setPrimaryClip(
                 android.content.ClipData.newPlainText(getString(R.string.clipboard_usage_access), command))
             toast(getString(R.string.copied_to_the_car_clipboard_run_the_command_on_your_comput))
         }, matchButton(0, 56))
@@ -2504,7 +2504,7 @@ class DiPlayActivity : ComponentActivity() {
         if (Build.VERSION.SDK_INT >= 31 && checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
             bluetoothPermission.launch(Manifest.permission.BLUETOOTH_CONNECT); return
         }
-        val adapter = getSystemService(BluetoothManager::class.java)?.adapter
+        val adapter = systemServiceCompat(this, BluetoothManager::class.java)?.adapter
         if (adapter == null || !adapter.isEnabled) {
             AlertDialog.Builder(this).setTitle(getString(R.string.turn_on_bluetooth))
                 .setMessage(getString(R.string.enable_the_car_s_bluetooth_and_pair_your_iphone_first))
@@ -2561,7 +2561,7 @@ class DiPlayActivity : ComponentActivity() {
     }
 
     private fun resetWirelessGroup() {
-        val manager = getSystemService(android.net.wifi.p2p.WifiP2pManager::class.java)
+        val manager = systemServiceCompat(this, android.net.wifi.p2p.WifiP2pManager::class.java)
         if (manager == null) { toast(getString(R.string.this_head_unit_does_not_support_wi_fi_direct)); return }
         val channel = manager.initialize(this, mainLooper, null)
         try {

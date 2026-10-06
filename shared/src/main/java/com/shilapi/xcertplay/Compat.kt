@@ -26,6 +26,8 @@ private fun systemServiceNameFor(cls: Class<*>): String? = when (cls.name) {
     "android.view.inputmethod.InputMethodManager" -> "input_method"
     "android.os.PowerManager" -> "power"
     "android.net.TetheringManager" -> "tethering"
+    "android.net.wifi.p2p.WifiP2pManager" -> "wifip2p"
+    "android.content.ClipboardManager" -> "clipboard"
     else -> null
 }
 
