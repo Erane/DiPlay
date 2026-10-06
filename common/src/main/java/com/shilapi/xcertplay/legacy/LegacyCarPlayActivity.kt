@@ -173,6 +173,19 @@ class LegacyCarPlayActivity : Activity() {
             checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
 
     private fun startSession() {
+        try {
+            startSessionInternal()
+        } catch (error: Throwable) {
+            // Head-unit ROMs often swallow crash dialogs: keep the failure visible on screen
+            // and in the diagnostic files instead of dying back to the launcher.
+            appendCrash("startSession", error)
+            setStatus("启动错误: ${error.javaClass.simpleName}: ${error.message?.take(150)}")
+            appendLog("启动错误: $error")
+            shutdown("启动失败", {})
+        }
+    }
+
+    private fun startSessionInternal() {
         if (shuttingDown.get()) return
         // The wired session routes AirPlay through CarPlayVpnService; consent must be granted
         // before the controller can establish the tunnel. Wireless runs over the Wi-Fi network
@@ -507,6 +520,19 @@ class LegacyCarPlayActivity : Activity() {
             logLines.addLast(message.take(200))
             while (logLines.size > 5) logLines.removeFirst()
             logView.text = logLines.joinToString("\n")
+        }
+    }
+
+    private fun appendCrash(what: String, error: Throwable) {
+        val trace = java.io.StringWriter()
+            .also { java.io.PrintWriter(it).use { w -> error.printStackTrace(w) } }
+            .toString()
+        val entry = "==== ${System.currentTimeMillis()} $what (SDK ${Build.VERSION.SDK_INT}) ====\n$trace\n"
+        for (dir in listOfNotNull(getExternalFilesDir(null), filesDir)) {
+            runCatching {
+                dir.mkdirs()
+                File(dir, "diplay-crash.txt").appendText(entry)
+            }
         }
     }
 
