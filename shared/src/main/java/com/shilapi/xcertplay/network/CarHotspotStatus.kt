@@ -1,5 +1,7 @@
 package com.shilapi.xcertplay.network
 
+import com.shilapi.xcertplay.systemServiceCompat
+import com.shilapi.xcertplay.checkSelfPermissionCompat
 import androidx.core.content.ContextCompat
 import android.content.Context
 import android.content.IntentFilter
@@ -23,7 +25,7 @@ object CarHotspotStatus {
      */
     fun isEnabled(context: Context): Boolean? {
         val app = context.applicationContext
-        val wifi = ContextCompat.getSystemService(app, WifiManager::class.java)
+        val wifi = systemServiceCompat(app, WifiManager::class.java)
         return read(
             state = { wifi?.let { WifiManager::class.java.getMethod("getWifiApState").invoke(it) as? Int } },
             enabled = { wifi?.let { WifiManager::class.java.getMethod("isWifiApEnabled").invoke(it) as? Boolean } },

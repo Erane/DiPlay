@@ -1,5 +1,7 @@
 package com.shilapi.xcertplay.network
 
+import com.shilapi.xcertplay.systemServiceCompat
+import com.shilapi.xcertplay.checkSelfPermissionCompat
 import androidx.core.content.ContextCompat
 import android.content.Context
 import android.os.Build
@@ -43,7 +45,7 @@ object CarHotspotTethering {
         val startReflection: (ResultReceiver) -> Unit = { receiver ->
             val service = ConnectivityManager::class.java.getDeclaredField("mService")
                 .apply { isAccessible = true }
-                .get(ContextCompat.getSystemService(context, ConnectivityManager::class.java))
+                .get(systemServiceCompat(context, ConnectivityManager::class.java))
                 ?: throw NoSuchMethodException("Connectivity service unavailable")
             service.javaClass.getMethod(
                 "startTethering", Int::class.javaPrimitiveType, ResultReceiver::class.java,

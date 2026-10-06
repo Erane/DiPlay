@@ -1,5 +1,7 @@
 package com.shilapi.xcertplay.network
 
+import com.shilapi.xcertplay.systemServiceCompat
+import com.shilapi.xcertplay.checkSelfPermissionCompat
 import android.annotation.SuppressLint
 import android.content.Context
 import android.net.ConnectivityManager
@@ -21,7 +23,7 @@ internal class ManualHotspotInterfaces(
     private val context: Context,
     private val onDiagnostic: (String) -> Unit = {},
 ) : Closeable {
-    private val connectivity = ContextCompat.getSystemService(context, ConnectivityManager::class.java)
+    private val connectivity = systemServiceCompat(context, ConnectivityManager::class.java)
     private val publicTethering = if (Build.VERSION.SDK_INT >= 36) PublicTethering(context) else null
     private var lastLegacyDiagnostic: String? = null
 
@@ -83,7 +85,7 @@ internal class ManualHotspotInterfaces(
     private class PublicTethering(context: Context) : Closeable {
         @Volatile var interfaces: Set<String>? = null
             private set
-        private val manager = ContextCompat.getSystemService(context, TetheringManager::class.java)
+        private val manager = systemServiceCompat(context, TetheringManager::class.java)
         private val callback = object : TetheringManager.TetheringEventCallback {
             override fun onTetheredInterfacesChanged(interfaces: Set<TetheringInterface>) {
                 this@PublicTethering.interfaces = interfaces.filter { it.type == TetheringManager.TETHERING_WIFI }

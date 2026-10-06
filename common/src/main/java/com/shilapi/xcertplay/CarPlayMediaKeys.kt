@@ -1,5 +1,7 @@
 package com.shilapi.xcertplay
 
+import com.shilapi.xcertplay.systemServiceCompat
+import com.shilapi.xcertplay.checkSelfPermissionCompat
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
@@ -159,7 +161,7 @@ internal object CarPlayMediaKeys {
     private fun regainFocusLocked() {
         if (!focusHeld && focusRequest == null && legacyFocusStream == null) return
         if (focusHeld) return
-        val audio = appContext?.let { ContextCompat.getSystemService(it, AudioManager::class.java) } ?: return
+        val audio = appContext?.let { systemServiceCompat(it, AudioManager::class.java) } ?: return
         focusHeld = if (Build.VERSION.SDK_INT >= 26) {
             val request = focusRequest ?: return
             audio.requestAudioFocus(request) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
@@ -180,7 +182,7 @@ internal object CarPlayMediaKeys {
     }
 
     private fun start(context: Context) {
-        val audio = ContextCompat.getSystemService(context, AudioManager::class.java)
+        val audio = systemServiceCompat(context, AudioManager::class.java)
         val granted = if (Build.VERSION.SDK_INT >= 26) {
             val request = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
                 .setAudioAttributes(
@@ -223,12 +225,12 @@ internal object CarPlayMediaKeys {
         artworkCache.clear()
         // focusRequest is only built on API 26+, so on older units this never touches the new API.
         @Suppress("NewApi")
-        focusRequest?.let { request -> appContext?.let { ctx -> ContextCompat.getSystemService(ctx, AudioManager::class.java)?.abandonAudioFocusRequest(request) } }
+        focusRequest?.let { request -> appContext?.let { ctx -> systemServiceCompat(ctx, AudioManager::class.java)?.abandonAudioFocusRequest(request) } }
         focusRequest = null
         if (legacyFocusStream != null) {
             @Suppress("DEPRECATION")
             appContext?.let { ctx ->
-                ContextCompat.getSystemService(ctx, AudioManager::class.java)?.abandonAudioFocus(focusListener)
+                systemServiceCompat(ctx, AudioManager::class.java)?.abandonAudioFocus(focusListener)
             }
         }
         legacyFocusStream = null

@@ -1,5 +1,7 @@
 package com.shilapi.xcertplay
 
+import com.shilapi.xcertplay.systemServiceCompat
+import com.shilapi.xcertplay.checkSelfPermissionCompat
 import androidx.core.content.ContextCompat
 import android.app.ActivityManager
 import android.content.Context
@@ -22,7 +24,7 @@ internal object ProcessExitDiagnostics {
     fun report(context: Context): String {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return UNSUPPORTED
         return report(Build.VERSION.SDK_INT, System.currentTimeMillis()) {
-            val manager = ContextCompat.getSystemService(context, ActivityManager::class.java)
+            val manager = systemServiceCompat(context, ActivityManager::class.java)
                 ?: throw IllegalStateException()
             manager.getHistoricalProcessExitReasons(context.packageName, 0, MAX_RECORDS).take(MAX_RECORDS).map {
                 Record(it.timestamp, it.reason, it.status, it.importance, it.pss, it.rss)

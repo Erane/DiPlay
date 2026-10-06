@@ -1,5 +1,7 @@
 package com.shilapi.xcertplay.hud
 
+import com.shilapi.xcertplay.systemServiceCompat
+
 import android.content.Context
 import androidx.core.content.ContextCompat
 import android.content.Intent
@@ -181,7 +183,7 @@ internal object BydClusterBridge {
     }
 
     private fun projectionDisplayPresent(appContext: Context): Boolean =
-        ContextCompat.getSystemService(appContext, android.hardware.display.DisplayManager::class.java)
+        systemServiceCompat(appContext, android.hardware.display.DisplayManager::class.java)
             ?.displays?.any { it.name == DILINK3_DISPLAY } == true
 
     private const val DILINK3_DISPLAY = "fission_bg_xdjaVirtualSurface"

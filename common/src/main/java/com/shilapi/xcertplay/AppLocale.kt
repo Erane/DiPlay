@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 package com.shilapi.xcertplay
 
+import com.shilapi.xcertplay.systemServiceCompat
+import com.shilapi.xcertplay.checkSelfPermissionCompat
 import androidx.core.content.ContextCompat
 import android.app.Activity
 import android.app.AlertDialog
@@ -31,7 +33,7 @@ object AppLocale {
 
     fun preference(context: Context): String {
         if (Build.VERSION.SDK_INT >= 33) {
-            val locales = ContextCompat.getSystemService(context, LocaleManager::class.java)!!.applicationLocales
+            val locales = systemServiceCompat(context, LocaleManager::class.java)!!.applicationLocales
             return if (locales.isEmpty) SYSTEM else locales[0].language
         }
         return context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -41,7 +43,7 @@ object AppLocale {
     fun save(context: Context, language: String) {
         require(language in ALL)
         if (Build.VERSION.SDK_INT >= 33) {
-            ContextCompat.getSystemService(context, LocaleManager::class.java)!!.applicationLocales =
+            systemServiceCompat(context, LocaleManager::class.java)!!.applicationLocales =
                 locale(language)?.let { LocaleList(it) } ?: LocaleList.getEmptyLocaleList()
             context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
                 .putBoolean(KEY_MIGRATED, true).remove(KEY_LANGUAGE).apply()
@@ -56,7 +58,7 @@ object AppLocale {
         if (Build.VERSION.SDK_INT >= 33) {
             val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             if (!prefs.getBoolean(KEY_MIGRATED, false)) {
-                val manager = ContextCompat.getSystemService(context, LocaleManager::class.java)!!
+                val manager = systemServiceCompat(context, LocaleManager::class.java)!!
                 val previous = locale(prefs.getString(KEY_LANGUAGE, SYSTEM) ?: SYSTEM)
                 // Never overwrite a language already chosen through Android Settings.
                 if (manager.applicationLocales.isEmpty && previous != null) {

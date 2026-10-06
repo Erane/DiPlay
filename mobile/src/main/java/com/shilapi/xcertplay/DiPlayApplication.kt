@@ -1,5 +1,7 @@
 package com.shilapi.xcertplay
 
+import com.shilapi.xcertplay.systemServiceCompat
+import com.shilapi.xcertplay.checkSelfPermissionCompat
 import android.app.ActivityManager
 import android.content.Context
 import android.os.Build
@@ -59,7 +61,7 @@ class DiPlayApplication : MultiDexApplication() {
             appendLine("ABI: ${Build.SUPPORTED_ABIS?.joinToString(",")}")
             appendLine("指纹: ${Build.FINGERPRINT}")
             runCatching {
-                ContextCompat.getSystemService(context, ActivityManager::class.java)?.let { am ->
+                systemServiceCompat(context, ActivityManager::class.java)?.let { am ->
                     val mem = ActivityManager.MemoryInfo()
                     am.getMemoryInfo(mem)
                     appendLine("内存: 总 ${(mem.totalMem / 1048576)} MB, 可用 ${(mem.availMem / 1048576)} MB, 低内存模式=${mem.lowMemory}")

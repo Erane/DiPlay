@@ -1,5 +1,7 @@
 package com.shilapi.xcertplay.media
 
+import com.shilapi.xcertplay.systemServiceCompat
+import com.shilapi.xcertplay.checkSelfPermissionCompat
 import androidx.core.content.ContextCompat
 import android.content.Context
 import android.media.AudioAttributes
@@ -172,7 +174,7 @@ class AndroidMediaSink(
     private val onMediaAudioChanged: (Boolean) -> Unit = {},
 ) : MediaSink {
     private val appContext = context?.applicationContext
-    private val audioManager = appContext?.let { ContextCompat.getSystemService(it, AudioManager::class.java) }
+    private val audioManager = appContext?.let { systemServiceCompat(it, AudioManager::class.java) }
     private val audioFocusCoordinator = AudioFocusCoordinator(
         appContext,
         audioFocusEnabled,

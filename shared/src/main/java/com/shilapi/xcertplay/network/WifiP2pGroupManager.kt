@@ -1,5 +1,7 @@
 package com.shilapi.xcertplay.network
 
+import com.shilapi.xcertplay.systemServiceCompat
+import com.shilapi.xcertplay.checkSelfPermissionCompat
 import android.Manifest
 import android.app.AppOpsManager
 import android.content.Context
@@ -46,7 +48,7 @@ class WifiP2pGroupManager(
         require(WifiP2pChannels.isValid(preferredChannel)) { "Unsupported Wi-Fi Direct channel: $preferredChannel" }
     }
     private val appContext = context.applicationContext
-    private val p2pManager = ContextCompat.getSystemService(appContext, WifiP2pManager::class.java)
+    private val p2pManager = systemServiceCompat(appContext, WifiP2pManager::class.java)
         ?: throw IllegalStateException("WifiP2pManager is unavailable")
     private val stateLock = Object()
     private val random = SecureRandom()
@@ -552,24 +554,24 @@ class WifiP2pGroupManager(
 
     @Suppress("DEPRECATION")
     private fun readStation(): Station = runCatching {
-        val info = ContextCompat.getSystemService(appContext, WifiManager::class.java)?.connectionInfo
+        val info = systemServiceCompat(appContext, WifiManager::class.java)?.connectionInfo
         Station(info?.supplicantState, info?.frequency?.takeIf { it > 0 })
     }.getOrDefault(Station(null, null))
 
     private fun checkPrerequisites(station: Station) {
-        val wifi = ContextCompat.getSystemService(appContext, WifiManager::class.java)
+        val wifi = systemServiceCompat(appContext, WifiManager::class.java)
         val fiveGhzSupported = runCatching { wifi?.is5GHzBandSupported }.getOrNull()
         val wifiEnabled = runCatching { wifi?.isWifiEnabled }.getOrNull()
         // isLocationEnabled is API 28; runCatching also keeps older units at a null here.
         @Suppress("NewApi")
         val locationEnabled = runCatching {
-            ContextCompat.getSystemService(appContext, LocationManager::class.java)?.isLocationEnabled
+            systemServiceCompat(appContext, LocationManager::class.java)?.isLocationEnabled
         }.getOrNull()
         val required = if (Build.VERSION.SDK_INT >= 33) Manifest.permission.NEARBY_WIFI_DEVICES
             else Manifest.permission.ACCESS_FINE_LOCATION
         val granted = appContext.checkSelfPermission(required) == PackageManager.PERMISSION_GRANTED
         val locationAccessMode = if (Build.VERSION.SDK_INT in 29..32) runCatching {
-            ContextCompat.getSystemService(appContext, AppOpsManager::class.java)?.unsafeCheckOpNoThrow(
+            systemServiceCompat(appContext, AppOpsManager::class.java)?.unsafeCheckOpNoThrow(
                 AppOpsManager.OPSTR_FINE_LOCATION, android.os.Process.myUid(), appContext.packageName)
         }.getOrNull() else null
         diagnostic("Wi-Fi P2P preflight wifiEnabled=$wifiEnabled locationEnabled=$locationEnabled permissionGranted=$granted locationAccessMode=${locationAccessMode ?: "unknown"} stationMHz=${station.alignmentFrequency ?: "unknown"} stationState=${station.state ?: "unknown"} reportedStationMHz=${station.reportedFrequency ?: "unknown"} fiveGhzSupported=${fiveGhzSupported ?: "unknown"}")

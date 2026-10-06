@@ -1,5 +1,7 @@
 package com.shilapi.xcertplay.network
 
+import com.shilapi.xcertplay.systemServiceCompat
+import com.shilapi.xcertplay.checkSelfPermissionCompat
 import androidx.core.content.ContextCompat
 import android.annotation.SuppressLint
 import android.content.Context
@@ -29,9 +31,9 @@ class ExistingWifiManager(
     private val onDiagnostic: (String) -> Unit = {},
     private val onNetworkChanged: () -> Unit = {},
 ) : WirelessHotspotManager {
-    private val connectivity = ContextCompat.getSystemService(context.applicationContext, ConnectivityManager::class.java)
+    private val connectivity = systemServiceCompat(context.applicationContext, ConnectivityManager::class.java)
         ?: throw IllegalStateException("ConnectivityManager is unavailable")
-    private val wifi = ContextCompat.getSystemService(context.applicationContext, WifiManager::class.java)
+    private val wifi = systemServiceCompat(context.applicationContext, WifiManager::class.java)
         ?: throw IllegalStateException("WifiManager is unavailable")
     private val lock = Any()
     private val invalidated = AtomicBoolean()

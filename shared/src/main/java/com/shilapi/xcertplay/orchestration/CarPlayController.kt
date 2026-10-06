@@ -1,5 +1,7 @@
 package com.shilapi.xcertplay.orchestration
 
+import com.shilapi.xcertplay.systemServiceCompat
+import com.shilapi.xcertplay.checkSelfPermissionCompat
 import androidx.core.content.ContextCompat
 import android.Manifest
 import android.bluetooth.BluetoothAdapter
@@ -180,9 +182,9 @@ class CarPlayController(
     private val appContext = context.applicationContext
     private val diagnosticAttempt = diagnosticAttempts.incrementAndGet()
     private val diagnosticRun = AtomicInteger()
-    private val usbManager = ContextCompat.getSystemService(context, UsbManager::class.java)!!
+    private val usbManager = systemServiceCompat(context, UsbManager::class.java)!!
     private val bluetoothAdapter =
-        ContextCompat.getSystemService(appContext, BluetoothManager::class.java)?.adapter
+        systemServiceCompat(appContext, BluetoothManager::class.java)?.adapter
     private val iphoneHost = IphoneUsbHost(
         appContext,
         usbManager,

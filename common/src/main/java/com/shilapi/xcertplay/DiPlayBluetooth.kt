@@ -1,5 +1,7 @@
 package com.shilapi.xcertplay
 
+import com.shilapi.xcertplay.systemServiceCompat
+import com.shilapi.xcertplay.checkSelfPermissionCompat
 import androidx.core.content.ContextCompat
 import android.bluetooth.BluetoothManager
 import android.content.Context
@@ -7,7 +9,7 @@ import android.provider.Settings
 
 internal object DiPlayBluetooth {
     fun localAddress(context: Context): String? {
-        val adapter = runCatching { ContextCompat.getSystemService(context, BluetoothManager::class.java)?.adapter?.address }.getOrNull()
+        val adapter = runCatching { systemServiceCompat(context, BluetoothManager::class.java)?.adapter?.address }.getOrNull()
         val setting = runCatching { Settings.Secure.getString(context.contentResolver, "bluetooth_address") }.getOrNull()
         return listOfNotNull(adapter, setting).firstOrNull {
             Regex("(?i)([0-9a-f]{2}:){5}[0-9a-f]{2}").matches(it) &&

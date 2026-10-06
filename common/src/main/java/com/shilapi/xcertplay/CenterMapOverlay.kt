@@ -1,5 +1,7 @@
 package com.shilapi.xcertplay
 
+import com.shilapi.xcertplay.systemServiceCompat
+import com.shilapi.xcertplay.checkSelfPermissionCompat
 import androidx.core.content.ContextCompat
 import android.app.ActivityManager
 import android.content.Context
@@ -73,7 +75,7 @@ internal object CenterMapOverlay {
         if (root != null) return true
         if (!aspect.isFinite() || aspect <= 0) return false
         if (!permitted(context)) return false
-        val windows = ContextCompat.getSystemService(context, WindowManager::class.java) ?: return false
+        val windows = systemServiceCompat(context, WindowManager::class.java) ?: return false
         val metrics = context.resources.displayMetrics
         val screenWidth = metrics.widthPixels
         val screenHeight = metrics.heightPixels
@@ -254,7 +256,7 @@ internal object CenterMapOverlay {
     fun hide() {
         val view = root ?: return
         root = null
-        runCatching { ContextCompat.getSystemService(view.context, WindowManager::class.java)?.removeViewImmediate(view) }
+        runCatching { systemServiceCompat(view.context, WindowManager::class.java)?.removeViewImmediate(view) }
         Log.i(TAG, "card hidden")
     }
 

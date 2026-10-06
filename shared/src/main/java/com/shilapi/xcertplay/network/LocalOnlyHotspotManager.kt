@@ -1,5 +1,7 @@
 package com.shilapi.xcertplay.network
 
+import com.shilapi.xcertplay.systemServiceCompat
+import com.shilapi.xcertplay.checkSelfPermissionCompat
 import android.annotation.SuppressLint
 import android.content.Context
 import android.net.ConnectivityManager
@@ -37,8 +39,8 @@ import java.util.concurrent.TimeUnit
 @SuppressLint("NewApi")
 class LocalOnlyHotspotManager(context: Context, private val onDiagnostic: (String) -> Unit = {}) : WirelessHotspotManager {
     private val connectivityManager =
-        ContextCompat.getSystemService(context.applicationContext, ConnectivityManager::class.java)
-    private val wifiManager = ContextCompat.getSystemService(context.applicationContext, WifiManager::class.java)
+        systemServiceCompat(context.applicationContext, ConnectivityManager::class.java)
+    private val wifiManager = systemServiceCompat(context.applicationContext, WifiManager::class.java)
         ?: throw IllegalStateException("WifiManager is unavailable")
     private val stateLock = Object()
 
