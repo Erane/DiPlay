@@ -67,17 +67,20 @@ class DiPlayProbeActivity : Activity() {
         }.onFailure { appendLine("  (枚举失败: $it)") }
         appendLine()
         var found = false
-        for (name in listOf("diplay-crash.txt", "diplay-started.txt", "legacy-log.txt")) {
-            for (dir in listOf(getExternalFilesDir(null), filesDir)) {
-                val file = dir?.let { File(it, name) }
-                if (file != null && file.exists()) {
-                    found = true
-                    appendLine("==== $name (${file.absolutePath}) ====")
-                    val content = runCatching { file.readText() }.getOrElse { "(读取失败: $it)" }
-                    // Do not embed escapes in the literal: show the tail as-is.
-                    val shown = if (name == "legacy-log.txt" && content.length > 4000) content.takeLast(4000) else content
-                    appendLine(shown)
-                }
+        val probeContext = this@DiPlayProbeActivity
+        for (name in listOf(
+            com.shilapi.xcertplay.legacy.LegacyDiagnostics.CRASH_FILE,
+            com.shilapi.xcertplay.legacy.LegacyDiagnostics.STARTED_FILE,
+            com.shilapi.xcertplay.legacy.LegacyDiagnostics.LOG_FILE,
+        )) {
+            val content = com.shilapi.xcertplay.legacy.LegacyDiagnostics.readAll(probeContext, name)
+            if (content != null) {
+                found = true
+                appendLine("==== $name ====")
+                val shown = if (name == com.shilapi.xcertplay.legacy.LegacyDiagnostics.LOG_FILE && content.length > 4000) {
+                    content.takeLast(4000)
+                } else content
+                appendLine(shown)
             }
         }
         if (!found) appendLine("==== 未发现任何诊断文件：进程此前从未启动过 ====")

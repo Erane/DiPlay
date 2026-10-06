@@ -131,12 +131,11 @@ class LegacyCarPlayActivity : Activity() {
         }
         setContentView(root)
         runCatching {
-            getExternalFilesDir(null)?.let { dir ->
-                dir.mkdirs()
-                val profile = "显示版本 ${Build.VERSION.RELEASE} / 真实 SDK ${Build.VERSION.SDK_INT} / " +
-                    "硬件 ${Build.HARDWARE} / 内核 ${System.getProperty("os.version")}"
-                File(dir, "legacy-log.txt").appendText("==== ${SimpleDateFormat("MM-dd HH:mm:ss", Locale.US).format(Date())} 会话开始 ====\n$profile\n")
-            }
+            com.shilapi.xcertplay.legacy.LegacyDiagnostics.append(
+                this, com.shilapi.xcertplay.legacy.LegacyDiagnostics.LOG_FILE,
+                "==== ${SimpleDateFormat("MM-dd HH:mm:ss", Locale.US).format(Date())} 会话开始 ====\n" +
+                    com.shilapi.xcertplay.legacy.LegacyDiagnostics.platformReport(this) + "\n",
+            )
         }
         appendLog("compat-4.4 CarPlay 宿主已启动 SDK=${Build.VERSION.SDK_INT}")
     }
@@ -636,6 +635,13 @@ class LegacyCarPlayActivity : Activity() {
     }
 
     private fun appendLog(message: String) {
+        runCatching {
+            com.shilapi.xcertplay.legacy.LegacyDiagnostics.append(
+                this, com.shilapi.xcertplay.legacy.LegacyDiagnostics.LOG_FILE,
+                java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US)
+                    .format(java.util.Date()) + " " + message + "\n",
+            )
+        }
         runOnUiThread {
             if (!::logView.isInitialized) return@runOnUiThread
             logLines.addLast(message.take(200))
@@ -645,15 +651,11 @@ class LegacyCarPlayActivity : Activity() {
     }
 
     private fun appendCrash(what: String, error: Throwable) {
-        val trace = java.io.StringWriter()
-            .also { java.io.PrintWriter(it).use { w -> error.printStackTrace(w) } }
-            .toString()
-        val entry = "==== ${System.currentTimeMillis()} $what (SDK ${Build.VERSION.SDK_INT}) ====\n$trace\n"
-        for (dir in listOfNotNull(getExternalFilesDir(null), filesDir)) {
-            runCatching {
-                dir.mkdirs()
-                File(dir, "diplay-crash.txt").appendText(entry)
-            }
+        runCatching {
+            com.shilapi.xcertplay.legacy.LegacyDiagnostics.append(
+                this, com.shilapi.xcertplay.legacy.LegacyDiagnostics.CRASH_FILE,
+                com.shilapi.xcertplay.legacy.LegacyDiagnostics.crashEntry(what, error),
+            )
         }
     }
 

@@ -35,7 +35,12 @@ class DiPlayApplication : MultiDexApplication() {
                     Toast.LENGTH_LONG,
                 ).show()
             }
-            runCatching { appendCrash(base, "uncaught on ${thread.name}", error) }
+            runCatching {
+                com.shilapi.xcertplay.legacy.LegacyDiagnostics.append(
+                    base, com.shilapi.xcertplay.legacy.LegacyDiagnostics.CRASH_FILE,
+                    com.shilapi.xcertplay.legacy.LegacyDiagnostics.crashEntry("uncaught on ${thread.name}", error),
+                )
+            }
             previous?.uncaughtException(thread, error)
         }
         super.attachBaseContext(base)
