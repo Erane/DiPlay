@@ -9,6 +9,8 @@ enum class WirelessHotspotBackend(val label: String) {
     LOCAL_ONLY_HOTSPOT("LocalOnlyHotspot"),
     MANUAL_HOTSPOT("Manual hotspot"),
     EXISTING_WIFI("Existing Wi-Fi / Same LAN"),
+    /** Pre-21 units: the system hotspot is the network; the interface is discovered by scan. */
+    SYSTEM_HOTSPOT_PASSIVE("System hotspot (passive)"),
 }
 
 /** The live Wi-Fi credentials and interface details for a wireless CarPlay network. */

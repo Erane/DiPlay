@@ -85,7 +85,7 @@ class LegacyHomeActivity : Activity() {
             orientation = LinearLayout.VERTICAL
             setPadding(48, 24, 48, 0)
             addView(TextView(this@LegacyHomeActivity).apply {
-                text = "先在车机设置里开启热点，让 iPhone 连上热点；然后填写热点的名称和密码。"
+                text = "先在车机设置里开启热点，让 iPhone 连上热点；然后填写热点的名称和密码。（iPhone 需要与车机完成蓝牙配对）"
                 textSize = 13f
             })
             addView(ssidInput)

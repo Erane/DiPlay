@@ -3038,6 +3038,9 @@ class CarPlayHostActivity : ComponentActivity() {
         WirelessHotspotMode.LOCAL_ONLY_HOTSPOT -> getString(R.string.localonlyhotspot)
         WirelessHotspotMode.MANUAL -> getString(R.string.manual_hotspot)
         WirelessHotspotMode.EXISTING_WIFI -> getString(R.string.existing_wifi_title)
+        // compat-4.4: the unit's own system hotspot is the network; the label is only
+        // used by the Compose settings UI, which pre-21 units never reach.
+        WirelessHotspotMode.PASSIVE_HOTSPOT -> getString(R.string.existing_wifi_title)
     }
 
     private fun menuText(

@@ -313,7 +313,7 @@ class LegacyCarPlayActivity : Activity() {
             hostMac = deviceId.split(":").map { it.toInt(16).toByte() }.toByteArray(),
             wirelessBluetoothDeviceAddress = DiPlayPreferences.phoneAddress(this),
             transport = if (wireless) CarPlayTransport.WIRELESS else CarPlayTransport.WIRED,
-            wirelessHotspotMode = if (wireless) WirelessHotspotMode.EXISTING_WIFI else WirelessHotspotMode.WIFI_P2P,
+            wirelessHotspotMode = if (wireless) WirelessHotspotMode.PASSIVE_HOTSPOT else WirelessHotspotMode.WIFI_P2P,
             existingWifiSsid = if (wireless) AirPlayPersistence.loadExistingWifiSsid(this) else "",
             existingWifiPassphrase = if (wireless) AirPlayPersistence.loadExistingWifiPassphrase(this) else "",
             locationReportingEnabled = false,

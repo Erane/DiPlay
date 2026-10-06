@@ -66,6 +66,7 @@ import com.shilapi.xcertplay.transport.Ch341I2cTransport
 import com.shilapi.xcertplay.transport.Ch341UsbHost
 import com.shilapi.xcertplay.transport.Ch341UsbSession
 import com.shilapi.xcertplay.transport.Iap2IdentificationConfig
+import com.shilapi.xcertplay.transport.Iap2WirelessSecurity
 import com.shilapi.xcertplay.transport.Iap2LocationProvider
 import com.shilapi.xcertplay.transport.Iap2UsbMuxHost
 import com.shilapi.xcertplay.transport.Iap2UsbSession
@@ -2034,7 +2035,70 @@ class CarPlayController(
         type.equals("disableBluetooth", ignoreCase = true) ||
             type.equals("disable-bluetooth", ignoreCase = true)
 
+    /**
+     * Pre-29 passive hotspot: the system hotspot is already up and the iPhone attaches to it.
+     * Finds the unit's Wi-Fi interface IPv4 by scanning [NetworkInterface] (AP interfaces are
+     * named ap0/wlan0/swlan0 etc. depending on the SoC) and reports it as the AirPlay host.
+     */
+    private fun passiveHotspotInfo(generation: Int): WirelessHotspotInfo {
+        onStatus(CarPlayStatus.StartingHotspot, generation)
+        val candidates = mutableListOf<Pair<java.net.NetworkInterface, java.net.Inet4Address>>()
+        try {
+            val enumerated = java.net.NetworkInterface.getNetworkInterfaces()?.toList().orEmpty()
+            for (iface in enumerated) {
+                if (!iface.isUp) continue
+                val name = iface.name.lowercase()
+                val looksLikeWifiAp = name.startsWith("ap") || name.startsWith("wlan") ||
+                    name.startsWith("swlan") || name.startsWith("softap")
+                if (!looksLikeWifiAp) continue
+                for (address in iface.inetAddresses) {
+                    if (address is java.net.Inet4Address && !address.isLoopbackAddress) {
+                        candidates += iface to address
+                    }
+                }
+            }
+        } catch (error: Exception) {
+            throw WirelessStartupException(
+                WirelessStartupFailure.HOTSPOT_NOT_READY,
+                "Could not enumerate network interfaces: ${error.message}",
+            )
+        }
+        if (candidates.isEmpty()) {
+            throw WirelessStartupException(
+                WirelessStartupFailure.HOTSPOT_NOT_READY,
+                "The system hotspot interface is not up yet. Turn the car hotspot on in the car settings and try again.",
+            )
+        }
+        val (iface, address) = candidates.first()
+        debugLog(
+            "passive hotspot interface=${iface.name} host=$address " +
+                "candidates=${candidates.joinToString { (i, a) -> i.name + "=" + a.hostAddress }}",
+        )
+        val ssid = config.existingWifiSsid.ifBlank { "hotspot" }
+        return WirelessHotspotInfo(
+            ssid = ssid,
+            passphrase = config.existingWifiPassphrase,
+            security = Iap2WirelessSecurity.WPA_WPA2,
+            channel = 0,
+            frequencyMHz = null,
+            bssid = null,
+            interfaceName = iface.name,
+            hostAddress = address,
+            bandLabel = "2.4 GHz (passive)",
+            backend = com.shilapi.xcertplay.network.WirelessHotspotBackend.SYSTEM_HOTSPOT_PASSIVE,
+            hostAddresses = candidates.map { (_, a) -> a },
+        )
+    }
+
     private fun startWirelessHotspot(generation: Int): WirelessHotspotInfo {
+        // Pre-21 units whose own system hotspot carries the CarPlay network: the iPhone attaches
+        // to the unit's hotspot, so no hotspot management APIs are needed - scan the interfaces
+        // for the unit's Wi-Fi IPv4 and run discovery on it.
+        if (Build.VERSION.SDK_INT < 29 &&
+            config.wirelessHotspotMode == WirelessHotspotMode.PASSIVE_HOTSPOT
+        ) {
+            return passiveHotspotInfo(generation)
+        }
         // Every wireless manager below Q relies on APIs that do not exist there (startLocalOnlyHotspot
         // is API 26, Channel.close 27, MacAddress 28). Android 6-9 units are wired-only by design, so
         // fail the wireless run with a clear message instead of crashing on a missing method.
@@ -2086,6 +2150,8 @@ class CarPlayController(
                 appContext, config.existingWifiSsid, config.existingWifiPassphrase, ::debugLog,
                 onNetworkChanged = { if (!isStaleWirelessRun(generation)) restartWireless() },
             )
+            WirelessHotspotMode.PASSIVE_HOTSPOT ->
+                throw IllegalStateException("PASSIVE_HOTSPOT is handled without a wireless manager")
             WirelessHotspotMode.MANUAL -> ManualHotspotManager(
                 context = appContext,
                 ssid = config.manualHotspotSsid

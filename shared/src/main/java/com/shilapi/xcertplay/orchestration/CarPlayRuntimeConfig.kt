@@ -23,6 +23,8 @@ enum class WirelessHotspotMode {
     LOCAL_ONLY_HOTSPOT,
     MANUAL,
     EXISTING_WIFI,
+    /** The unit's own system hotspot is the CarPlay network; no hotspot management is needed. */
+    PASSIVE_HOTSPOT,
 }
 
 enum class ManualHotspotBand {
