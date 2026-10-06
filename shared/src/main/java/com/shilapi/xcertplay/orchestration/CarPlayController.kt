@@ -1258,6 +1258,7 @@ class CarPlayController(
                     "bonded=${device.bondState == BluetoothDevice.BOND_BONDED} " +
                     "isConnected=${isBluetoothDeviceConnected(device)}",
             )
+            logBluetoothLinkTruth(device)
             debugLog(
                 "wireless RFCOMM connecting address=${device.address} " +
                     "uuid=$IAP2_IPHONE_UUID",
@@ -2396,6 +2397,56 @@ class CarPlayController(
         false
     }
 
+    /**
+     * What the stack itself believes about the link, from public APIs only. The reflection probe
+     * above cannot tell "not connected" from "method absent" on a 4.x ROM, and an SDP fetch is the
+     * only app-side way to learn whether the peer's service records can be read at all - without
+     * both, a dead RFCOMM "connection" is indistinguishable from a phone that refuses iAP2.
+     */
+    private fun logBluetoothLinkTruth(device: BluetoothDevice) {
+        val adapter = bluetoothAdapter
+        val states = listOf(
+            "headset" to BluetoothProfile.HEADSET,
+            "a2dp" to BluetoothProfile.A2DP,
+        ).joinToString(" ") { (name, profile) ->
+            name + "=" + profileStateName(
+                runCatching {
+                    adapter?.getProfileConnectionState(profile) ?: Int.MIN_VALUE
+                }.getOrDefault(Int.MIN_VALUE),
+            )
+        }
+        val hiddenMethod = runCatching {
+            BluetoothDevice::class.java.getMethod("isConnected")
+            "present"
+        }.getOrDefault("absent")
+        val fetched = runCatching { device.fetchUuidsWithSdp() }.getOrDefault(false)
+        runCatching { Thread.sleep(SDP_FETCH_WAIT_MILLIS) }
+        val uuids = runCatching {
+            val read = device.uuids
+            when {
+                read == null -> "null"
+                read.isEmpty() -> "empty"
+                else -> read.joinToString(",") { it.toString() } +
+                    " iap2=" + read.any { it.uuid == UUID.fromString(IAP2_IPHONE_UUID) }
+            }
+        }.getOrDefault("unreadable")
+        val discovering = runCatching { adapter?.isDiscovering == true }.getOrDefault(false)
+        if (discovering) runCatching { adapter?.cancelDiscovery() }
+        debugLog(
+            "wireless Bluetooth link truth profileStates=$states isConnectedMethod=$hiddenMethod " +
+                "sdpFetch=$fetched uuidsAfterFetch=${uuids.take(180)} wasDiscovering=$discovering",
+        )
+    }
+
+    private fun profileStateName(state: Int): String = when (state) {
+        BluetoothProfile.STATE_CONNECTED -> "connected"
+        BluetoothProfile.STATE_CONNECTING -> "connecting"
+        BluetoothProfile.STATE_DISCONNECTING -> "disconnecting"
+        BluetoothProfile.STATE_DISCONNECTED -> "disconnected"
+        Int.MIN_VALUE -> "unavailable"
+        else -> "state$state"
+    }
+
     private fun connectedBluetoothDevices(adapter: BluetoothAdapter): Set<BluetoothDevice> =
         buildSet {
             addAll(connectedBluetoothDevices(adapter, BluetoothProfile.HEADSET, BluetoothHeadset::class.java))
@@ -2723,6 +2774,7 @@ class CarPlayController(
         // Identification and MFi auth answer in under a second on a listening iPhone; waiting the
         // whole control-loop deadline only hides "the phone never replies" for five minutes.
         private const val IAP2_HANDSHAKE_TIMEOUT_MILLIS = 20_000L
+        private const val SDP_FETCH_WAIT_MILLIS = 2_000L
         private const val MAXIMUM_REENUMERATION_ATTEMPTS = 2
         private const val EXECUTOR_CLOSE_TIMEOUT_MILLIS = 2_000L
         private const val ADAPTER_ADDRESS_PLACEHOLDER = "02:00:00:00:00:00"
