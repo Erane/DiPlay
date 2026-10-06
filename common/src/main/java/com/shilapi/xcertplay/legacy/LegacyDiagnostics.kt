@@ -44,9 +44,20 @@ object LegacyDiagnostics {
             "${Build.CPU_ABI} / ${Build.CPU_ABI2}"
         }
 
-    /** Public root first (file-manager visible); app dirs as fallbacks. */
+    /**
+     * Write targets, most file-manager-visible first:
+     * 1. /mnt/sdcard (the traditional 4.x path this unit's file manager and tools can use)
+     * 2. the public root per the framework view
+     * 3. the app's external files dir
+     * 4. the internal files dir (last resort; needs the probe to read it back)
+     */
     fun dirs(context: Context): List<File> {
         val dirs = mutableListOf<File>()
+        if (Build.VERSION.SDK_INT < 29 &&
+            Environment.getExternalStorageState() == Environment.MEDIA_MOUNTED
+        ) {
+            dirs += File("/mnt/sdcard")
+        }
         if (Environment.getExternalStorageState() == Environment.MEDIA_MOUNTED) {
             dirs += File(Environment.getExternalStorageDirectory(), "DiPlay")
         }
