@@ -67,13 +67,16 @@ class DiPlayProbeActivity : Activity() {
         }.onFailure { appendLine("  (枚举失败: $it)") }
         appendLine()
         var found = false
-        for (name in listOf("diplay-crash.txt", "diplay-started.txt")) {
+        for (name in listOf("diplay-crash.txt", "diplay-started.txt", "legacy-log.txt")) {
             for (dir in listOf(getExternalFilesDir(null), filesDir)) {
                 val file = dir?.let { File(it, name) }
                 if (file != null && file.exists()) {
                     found = true
                     appendLine("==== $name (${file.absolutePath}) ====")
-                    appendLine(runCatching { file.readText() }.getOrElse { "(读取失败: $it)" })
+                    val content = runCatching { file.readText() }.getOrElse { "(读取失败: $it)" }
+                    // Do not embed escapes in the literal: show the tail as-is.
+                    val shown = if (name == "legacy-log.txt" && content.length > 4000) content.takeLast(4000) else content
+                    appendLine(shown)
                 }
             }
         }

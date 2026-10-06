@@ -215,19 +215,39 @@ class LegacyCarPlayActivity : Activity() {
      * ROM cast service (observed EADDRINUSE on the K2X). Pick the first free port from the
      * AirPlay range; the chosen port is advertised to the iPhone over iAP2 (0.2.10 feature).
      */
-    private fun pickAirPlayPort(): Int {
-        for (port in 7000..7010) {
+    private fun pickAirPlayPort(host: java.net.InetAddress?, startFrom: Int): Int {
+        val ports = (startFrom..7010).toList() + (7000 until maxOf(startFrom, 7000)).toList()
+        for (port in ports.distinct()) {
             try {
                 java.net.ServerSocket().use { socket ->
-                    socket.bind(java.net.InetSocketAddress(port))
+                    val bindAddress = host ?: java.net.InetAddress.getByName("0.0.0.0")
+                    socket.bind(java.net.InetSocketAddress(bindAddress, port))
                     return port
                 }
             } catch (error: java.io.IOException) {
-                appendLog("端口 $port 被占用，尝试下一个")
+                appendLog("端口 $port 在 ${host?.hostAddress ?: "0.0.0.0"} 上被占用，尝试下一个")
             }
         }
         return 7000
     }
+
+    /** First Wi-Fi-ish interface IPv4 (the unit's hotspot or its station interface). */
+    private fun passiveWifiAddress(): java.net.Inet4Address? = runCatching {
+        val enumerated = java.net.NetworkInterface.getNetworkInterfaces()?.toList().orEmpty()
+        for (iface in enumerated) {
+            if (!iface.isUp) continue
+            val name = iface.name.lowercase()
+            if (!(name.startsWith("ap") || name.startsWith("wlan") || name.startsWith("swlan") ||
+                    name.startsWith("softap"))
+            ) continue
+            for (address in iface.inetAddresses) {
+                if (address is java.net.Inet4Address && !address.isLoopbackAddress) return address
+            }
+        }
+        null
+    }.getOrDefault(null)
+
+    @Volatile private var currentAirPlayPort = 7000
 
     private fun micAvailable(): Boolean =
         Build.VERSION.SDK_INT < 23 ||
@@ -270,12 +290,13 @@ class LegacyCarPlayActivity : Activity() {
                 return
             }
         val identity = AirPlayPersistence.loadIdentity(this)
+        val hostAddress: java.net.Inet4Address? = if (wireless) passiveWifiAddress() else null
         val width = surfaceView.width.coerceAtLeast(64)
         val height = surfaceView.height.coerceAtLeast(64)
         val size = Pair(width / 2 * 2, height / 2 * 2)
         setStatus("启动 CarPlay 会话 ${size.first}x${size.second}…")
 
-        val airPlayConfig = buildAirPlayConfig(size.first, size.second, identity)
+        val airPlayConfig = buildAirPlayConfig(size.first, size.second, identity, hostAddress)
         val config = buildRuntimeConfig(identity)
         val renderer = AndroidMediaSink(
             surface = latestSurface,
@@ -395,7 +416,12 @@ class LegacyCarPlayActivity : Activity() {
         )
     }
 
-    private fun buildAirPlayConfig(width: Int, height: Int, identity: com.shilapi.xcertplay.airplay.AirPlayIdentity): AirPlayConfig {
+    private fun buildAirPlayConfig(
+        width: Int,
+        height: Int,
+        identity: com.shilapi.xcertplay.airplay.AirPlayIdentity,
+        hostAddress: java.net.Inet4Address?,
+    ): AirPlayConfig {
         val baseDisplay = AirPlayDisplayConfig(
             widthPixels = width,
             heightPixels = height,
@@ -404,8 +430,13 @@ class LegacyCarPlayActivity : Activity() {
             fps = AirPlayDisplaySettings.DEFAULT_FPS,
             primaryInputDevice = 1,
         )
-        val chosenPort = pickAirPlayPort()
-        appendLog("AirPlay 端口选择: $chosenPort")
+        // Probe ON the hotspot address: a wildcard probe misses services bound to the
+        // specific interface address. Start after the last port that failed EADDRINUSE.
+        val startFrom = getSharedPreferences("diplay", MODE_PRIVATE)
+            .getInt("last_failed_airplay_port", 6999) + 1
+        val chosenPort = pickAirPlayPort(hostAddress, startFrom)
+        currentAirPlayPort = chosenPort
+        appendLog("AirPlay 端口选择: $chosenPort（探测地址 ${hostAddress?.hostAddress ?: "0.0.0.0"}）")
         return AirPlayConfig(
             deviceName = "DiPlay",
             deviceId = DiPlayBootstrap.deviceId(identity),
@@ -451,6 +482,12 @@ class LegacyCarPlayActivity : Activity() {
         if (generation == restartGeneration) {
             val text = describeStatus(status)
             setStatus(text)
+            if (status is CarPlayStatus.Failed && status.message.contains("EADDRINUSE")) {
+                // Remember the failed port so the retry probes past it.
+                getSharedPreferences("diplay", MODE_PRIVATE)
+                    .edit().putInt("last_failed_airplay_port", currentAirPlayPort).apply()
+                setStatus("$text（端口 ${currentAirPlayPort} 被占用，已记录）")
+            }
             if (status is CarPlayStatus.Failed) {
                 appendLog("失败: ${status.message}")
                 scheduleReconnect()
