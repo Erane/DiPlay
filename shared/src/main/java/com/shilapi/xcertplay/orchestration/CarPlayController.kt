@@ -1231,7 +1231,9 @@ class CarPlayController(
                 // Bind discovery and its connect probe to the same AP/address family as AirPlay.
                 // The car hotspot previously used system NSD, which could resolve another interface
                 // or IPv6 while the listener/probe was bound to the AP's IPv4 address.
-                useInterfaceMdns = true,
+                // Pre-21 keeps system NSD: JmDNS binds the interface's 5353, which fails
+                // EADDRINUSE on 4.3/4.4 ROMs whose own mDNS daemon already holds it.
+                useInterfaceMdns = Build.VERSION.SDK_INT >= 21,
                 onEvent = { event -> debugLog("wireless bonjour: ${event.diagnosticSummary()}") },
                 additionalAddresses = hotspotInfo.hostAddresses.filter { it != hostAddress },
             )
