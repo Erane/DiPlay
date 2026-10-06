@@ -86,13 +86,13 @@ class DiPlayProbeActivity : Activity() {
             com.shilapi.xcertplay.legacy.LegacyDiagnostics.STARTED_FILE,
             com.shilapi.xcertplay.legacy.LegacyDiagnostics.LOG_FILE,
         )) {
-            val content = com.shilapi.xcertplay.legacy.LegacyDiagnostics.readAll(probeContext, name)
-            if (content != null) {
+            val file = com.shilapi.xcertplay.legacy.LegacyDiagnostics.readAll(probeContext, name)
+            if (file != null) {
                 found = true
-                appendLine("==== $name ====")
-                val shown = if (name == com.shilapi.xcertplay.legacy.LegacyDiagnostics.LOG_FILE && content.length > 4000) {
-                    content.takeLast(4000)
-                } else content
+                appendLine("==== $name (${file.path}) ====")
+                val shown = if (name == com.shilapi.xcertplay.legacy.LegacyDiagnostics.LOG_FILE && file.text.length > 4000) {
+                    file.text.takeLast(4000)
+                } else file.text
                 appendLine(shown)
             }
         }

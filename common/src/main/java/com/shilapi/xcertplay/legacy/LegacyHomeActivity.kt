@@ -97,8 +97,9 @@ class LegacyHomeActivity : Activity() {
             com.shilapi.xcertplay.legacy.LegacyDiagnostics.STARTED_FILE,
             com.shilapi.xcertplay.legacy.LegacyDiagnostics.LOG_FILE,
         )) {
-            appendLine("==== $name ====")
-            appendLine(com.shilapi.xcertplay.legacy.LegacyDiagnostics.readAll(this@LegacyHomeActivity, name) ?: "(无)")
+            val file = com.shilapi.xcertplay.legacy.LegacyDiagnostics.readAll(this@LegacyHomeActivity, name)
+            appendLine("==== $name ${file?.path ?: "(无)"} ====")
+            appendLine(file?.text ?: "")
         }
     }
 

@@ -13,6 +13,9 @@ data class LegacyWriteResult(val label: String, val path: String, val error: Thr
     override fun toString(): String = "$label $path ${error?.javaClass?.simpleName ?: "OK"}"
 }
 
+/** A diagnostic file read back, tagged with the directory it was found in. */
+data class LegacyLogFile(val path: String, val text: String)
+
 /**
  * Diagnostic file IO for Android 4.3/4.4 car units. Every reachable target gets a copy and every
  * target reports its outcome, because a unit with no adb and no share-target is diagnosed by the
@@ -95,16 +98,22 @@ object LegacyDiagnostics {
         )
     }
 
-    /** Concatenates the file from every target that has one (newest entry first is up to the caller). */
-    fun readAll(context: Context, name: String): String? {
-        var found: String? = null
+    /**
+     * The newest copy of one log, with the path it came from. Every target receives the same
+     * write, so returning all of them tripled the exported report; the largest file wins, because
+     * a target written before the storage grant can be short or missing.
+     */
+    fun readAll(context: Context, name: String): LegacyLogFile? {
+        var best: LegacyLogFile? = null
         for ((_, dir) in targets(context)) {
             val file = File(dir, name)
-            if (file.exists()) {
-                found = (found ?: "") + runCatching { file.readText() }.getOrElse { "(读取失败: $it)" } + "\n"
+            if (!file.exists()) continue
+            val text = runCatching { file.readText() }.getOrElse { continue }
+            if (best == null || text.length > best.text.length) {
+                best = LegacyLogFile(file.absolutePath, text)
             }
         }
-        return found
+        return best
     }
 
     fun crashEntry(what: String, error: Throwable): String {
