@@ -42,7 +42,7 @@ internal class AudioFocusCoordinator(
     private val enabled: Boolean,
     private val report: (String) -> Unit = {},
 ) {
-    private data class Entry(val channel: AudioChannel, val attributes: AudioAttributes)
+    private data class Entry(val channel: AudioChannel, val attributes: AudioAttributes?)
 
     private val manager = context?.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
     private val active = LinkedHashMap<AudioTrack, Entry>()
@@ -62,7 +62,7 @@ internal class AudioFocusCoordinator(
     }
 
     @Synchronized
-    fun acquire(track: AudioTrack, channel: AudioChannel, attributes: AudioAttributes) {
+    fun acquire(track: AudioTrack, channel: AudioChannel, attributes: AudioAttributes?) {
         if (!enabled || manager == null || channel == AudioChannel.NAVIGATION) return
         active[track] = Entry(channel, attributes)
         refreshRequest()
@@ -92,7 +92,12 @@ internal class AudioFocusCoordinator(
         val stream = streamFor(primary.channel)
         val result = if (Build.VERSION.SDK_INT >= 26) {
             val next = AudioFocusRequest.Builder(gain)
-                .setAudioAttributes(primary.attributes)
+                .setAudioAttributes(
+                    primary.attributes ?: AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_MEDIA)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                        .build(),
+                )
                 .setOnAudioFocusChangeListener(listener, Handler(Looper.getMainLooper()))
                 .build()
             request = next
@@ -1002,7 +1007,10 @@ private class AudioRenderer(
         val selection = mappedSelection()
         mappedChannel = selection.channel
         val streamOverride = channelOverride(selection.channel)
-        var attributes = audioAttributesFor(selection, streamOverride)
+        // AudioAttributes is API 21: on 4.3/4.4 the legacy stream-type track carries no
+        // attributes and the focus path uses the stream-based API instead.
+        var attributes: AudioAttributes? =
+            if (Build.VERSION.SDK_INT >= 21) audioAttributesFor(selection, streamOverride) else null
         trackAttributes = attributes
         val plan = MediaAudioBuffer.plan(selection.channel == AudioChannel.MEDIA,
             format.sampleRate, format.channels, minBuffer, mediaBufferMillis)
@@ -1014,7 +1022,7 @@ private class AudioRenderer(
             attributes = audioAttributesFor(selection)
             routeLabel = "usage"
             built = AudioTrack.Builder()
-                .setAudioAttributes(attributes)
+                .setAudioAttributes(attributes!!)
                 .setAudioFormat(pcmFormat(encoding, channelMask))
                 .setTransferMode(AudioTrack.MODE_STREAM)
                 .setBufferSizeInBytes(plan.trackBufferBytes)
@@ -1035,7 +1043,7 @@ private class AudioRenderer(
                     Log.w(TAG, "streamType=$streamType rejected by this ROM; falling back to usage-based track")
                     attributes = audioAttributesFor(selection)
                     AudioTrack.Builder()
-                        .setAudioAttributes(attributes)
+                        .setAudioAttributes(attributes!!)
                         .setAudioFormat(pcmFormat(encoding, channelMask))
                         .setTransferMode(AudioTrack.MODE_STREAM)
                         .setBufferSizeInBytes(plan.trackBufferBytes)
@@ -1045,14 +1053,17 @@ private class AudioRenderer(
         } else {
             // Pre-23: no AudioTrack.Builder; the legacy constructor covers every ROM.
             val streamType = if (streamOverride == 0) AudioManager.STREAM_MUSIC else streamOverride
-            routeLabel = "streamType=$streamType(pre-23)"
-            attributes = audioAttributesFor(selection)
+            routeLabel = "streamType=$streamType(pre-21)"
             built = AudioTrack(streamType, format.sampleRate, channelMask, encoding,
                 plan.trackBufferBytes, AudioTrack.MODE_STREAM)
         }
         track = built
         diagnosticStage = "track-attributes"
-        trackAttributes = audioTrackAttributesForFocus(built, attributes)
+        trackAttributes = if (Build.VERSION.SDK_INT >= 21) {
+            audioTrackAttributesForFocus(built, attributes!!)
+        } else {
+            null
+        }
         diagnosticStage = "track-capacity"
         // getBufferSizeInFrames is API 23; pre-23 the capacity is the requested buffer size.
         val capacityBytes = if (Build.VERSION.SDK_INT >= 23) built.bufferSizeInFrames * frameBytes

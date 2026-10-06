@@ -202,7 +202,7 @@ internal object CarPlayMediaKeys {
         }
         focusHeld = granted
         session = MediaSession(context, "DiPlay CarPlay").apply {
-            setCallback(callback, mainHandler)
+            callback?.let { setCallback(it, mainHandler) }
             setMetadata(androidMetadata(nowPlaying, shownArtworkLocked()))
             isActive = true
         }
@@ -267,7 +267,10 @@ internal object CarPlayMediaKeys {
         Log.i(TAG, "media key $source -> CarPlay $index sent=$sent")
     }
 
-    private val callback = CarPlayMediaCallback(::send)
+    // CarPlayMediaCallback extends MediaSession.Callback (API 21): build it only where the
+    // framework class exists, otherwise the whole object fails class-loading on 4.3/4.4.
+    private val callback: CarPlayMediaCallback? =
+        if (Build.VERSION.SDK_INT >= 21) CarPlayMediaCallback(::send) else null
 
     /** Whether [next] changes what the media session's metadata shows; position and play state do not. */
     internal fun metadataChanged(previous: CarPlayNowPlaying, next: CarPlayNowPlaying): Boolean =
