@@ -2066,9 +2066,41 @@ class CarPlayController(
             )
         }
         if (candidates.isEmpty()) {
+            // The user may still be navigating to the hotspot settings: poll for the interface
+            // instead of failing on the first scan.
+            val deadline = System.nanoTime() + PASSIVE_HOTSPOT_WAIT_MILLIS * 1_000_000
+            while (candidates.isEmpty() &&
+                !isStaleWirelessRun(generation) &&
+                System.nanoTime() < deadline
+            ) {
+                onStatus(CarPlayStatus.StartingHotspot, generation)
+                Thread.sleep(2000)
+                try {
+                    val enumerated = java.net.NetworkInterface.getNetworkInterfaces()?.toList().orEmpty()
+                    for (iface in enumerated) {
+                        if (!iface.isUp) continue
+                        val name = iface.name.lowercase()
+                        val looksLikeWifiAp = name.startsWith("ap") || name.startsWith("wlan") ||
+                            name.startsWith("swlan") || name.startsWith("softap")
+                        if (!looksLikeWifiAp) continue
+                        for (address in iface.inetAddresses) {
+                            if (address is java.net.Inet4Address && !address.isLoopbackAddress) {
+                                candidates += iface to address
+                            }
+                        }
+                    }
+                } catch (error: Exception) {
+                    throw WirelessStartupException(
+                        WirelessStartupFailure.HOTSPOT_NOT_READY,
+                        "Could not enumerate network interfaces: ${error.message}",
+                    )
+                }
+            }
+        }
+        if (candidates.isEmpty()) {
             throw WirelessStartupException(
                 WirelessStartupFailure.HOTSPOT_NOT_READY,
-                "The system hotspot interface is not up yet. Turn the car hotspot on in the car settings and try again.",
+                "The system hotspot interface did not come up. Turn the car hotspot on in the car settings and connect again.",
             )
         }
         val (iface, address) = candidates.first()
@@ -2660,6 +2692,7 @@ class CarPlayController(
     }
 
     companion object {
+        private const val PASSIVE_HOTSPOT_WAIT_MILLIS = 45_000L
         const val CONNECTION_DIAGNOSTIC_PREFIX = "CONNECTION_DIAGNOSTIC"
         private val diagnosticAttempts = AtomicInteger()
         private const val IAP2_IPHONE_UUID = "00000000-deca-fade-deca-deafdecacafe"
