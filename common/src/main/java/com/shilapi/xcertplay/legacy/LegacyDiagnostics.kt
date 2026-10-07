@@ -29,6 +29,7 @@ object LegacyDiagnostics {
     /** Real platform identity: settings screens on car ROMs show rebranded version strings. */
     fun platformReport(context: Context): String = buildString {
         appendLine("---- 系统档案 ${System.currentTimeMillis()} ----")
+        appendLine("App: ${context.packageName} ${appVersion(context)}")
         appendLine("Android: ${Build.VERSION.RELEASE} (SDK ${Build.VERSION.SDK_INT})")
         appendLine("ROM build: ${Build.DISPLAY}")
         appendLine("设备: ${Build.MANUFACTURER} ${Build.MODEL} / device=${Build.DEVICE} product=${Build.PRODUCT}")
@@ -46,6 +47,11 @@ object LegacyDiagnostics {
             }
         }
     }
+
+    fun appVersion(context: Context): String = runCatching {
+        val pkg = context.packageManager.getPackageInfo(context.packageName, 0)
+        "v" + pkg.versionName + " (vc" + pkg.versionCode + ")"
+    }.getOrDefault("version unknown")
 
     fun abiList(): String =
         if (Build.VERSION.SDK_INT >= 21) {
@@ -75,6 +81,9 @@ object LegacyDiagnostics {
         return targets
     }
 
+    /** Rotate the running log instead of letting a soak test fill the stick. */
+    private const val MAX_LOG_BYTES = 24L * 1024 * 1024
+
     fun append(context: Context, name: String, text: String): List<LegacyWriteResult> =
         writeAll(targets(context).map { (label, dir) -> label to File(dir, name) }) { appendText(text) }
 
@@ -93,6 +102,11 @@ object LegacyDiagnostics {
             path = file.absolutePath,
             error = runCatching {
                 file.parentFile?.mkdirs()
+                if (file.name == LOG_FILE && file.length() > MAX_LOG_BYTES) {
+                    val previous = File(file.parentFile, "legacy-log.1.txt")
+                    previous.delete()
+                    file.renameTo(previous)
+                }
                 file.write()
             }.exceptionOrNull(),
         )

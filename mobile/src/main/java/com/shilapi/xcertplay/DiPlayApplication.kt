@@ -46,6 +46,9 @@ class DiPlayApplication : MultiDexApplication() {
 
     override fun onCreate() {
         super.onCreate()
+        // Car units have no adb: mirror this process's logcat (stack traces included)
+        // into the file the user can pull with a memory stick.
+        runCatching { com.shilapi.xcertplay.legacy.LogcatMirror.start(this) }
         runCatching {
             LegacyDiagnostics.append(this, STARTED_FILE, "${System.currentTimeMillis()} application onCreate\n")
         }
