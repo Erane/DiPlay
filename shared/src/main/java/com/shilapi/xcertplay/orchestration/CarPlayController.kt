@@ -1240,9 +1240,11 @@ class CarPlayController(
                 // Bind discovery and its connect probe to the same AP/address family as AirPlay.
                 // The car hotspot previously used system NSD, which could resolve another interface
                 // or IPv6 while the listener/probe was bound to the AP's IPv4 address.
-                // Pre-21 keeps system NSD: JmDNS binds the interface's 5353, which fails
-                // EADDRINUSE on 4.3/4.4 ROMs whose own mDNS daemon already holds it.
-                useInterfaceMdns = Build.VERSION.SDK_INT >= 21,
+                // Pre-21 needs JmDNS too: NsdServiceInfo.setAttribute is API 21, so system NSD
+                // below 21 publishes _airplay._tcp without TXT records and the iPhone ignores
+                // the receiver entirely (session stalls at AirPlay_protocol). The EADDRINUSE risk
+                // from the ROM's own mdnsd is accepted and surfaces loudly in the log if hit.
+                useInterfaceMdns = true,
                 onEvent = { event -> debugLog("wireless bonjour: ${event.diagnosticSummary()}") },
                 additionalAddresses = hotspotInfo.hostAddresses.filter { it != hostAddress },
             )
@@ -1250,11 +1252,22 @@ class CarPlayController(
                 if (isStaleWirelessRun(generation)) return
                 bonjour = bonjourClient
                 startedHotspot?.validateReady()
-                bonjourClient.start()
+                try {
+                    bonjourClient.start()
+                    debugLog(
+                        "wireless Bonjour services started " +
+                            "mode=interface iface=${hotspotInfo.interfaceName ?: "unknown"}",
+                    )
+                } catch (error: Exception) {
+                    // 4.x ROMs run an mdnsd that owns 5353 and refuses the JmDNS bind. The phone
+                    // does not need Bonjour on this flow: iAP2 CarPlayStartSession delivers the
+                    // AirPlay endpoint directly (legacy logs show the TCP connect 300ms after
+                    // 0x4301 with mDNS dead the whole time), so keep going without it.
+                    debugLog("wireless Bonjour unavailable, continuing iAP2-only: ${error.message}")
+                }
             }
             startedBonjour = bonjourClient
             diagnostics.start()
-            debugLog("wireless Bonjour services started mode=interface iface=${hotspotInfo.interfaceName ?: "unknown"}")
             if (isStaleWirelessRun(generation)) {
                 return
             }
