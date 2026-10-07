@@ -46,6 +46,8 @@ object LegacyDiagnostics {
                 appendLine("内存: 总 ${(mem.totalMem / 1048576)} MB, 可用 ${(mem.availMem / 1048576)} MB, 低内存模式=${mem.lowMemory}")
             }
         }
+        appendLine()
+        append(AndroidVersionProbe.report())
     }
 
     fun appVersion(context: Context): String = runCatching {

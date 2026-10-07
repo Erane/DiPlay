@@ -39,6 +39,8 @@ class DiPlayProbeActivity : Activity() {
         appendLine()
         appendLine("本界面能打开 = 应用进程可以启动")
         appendLine()
+        append(com.shilapi.xcertplay.legacy.AndroidVersionProbe.report())
+        appendLine()
         appendLine("显示版本: ${Build.VERSION.RELEASE}")
         appendLine("真实 SDK: ${Build.VERSION.SDK_INT}")
         appendLine("ROM build: ${Build.DISPLAY}")

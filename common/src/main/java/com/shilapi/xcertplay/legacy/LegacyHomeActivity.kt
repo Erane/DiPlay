@@ -143,6 +143,7 @@ class LegacyHomeActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
-        status.text = "系统: Android ${Build.VERSION.RELEASE} (SDK ${Build.VERSION.SDK_INT}) · 待连接"
+        status.text = "系统: Android ${Build.VERSION.RELEASE} (SDK ${Build.VERSION.SDK_INT}) · 待连接\n" +
+            com.shilapi.xcertplay.legacy.AndroidVersionProbe.summaryLine()
     }
 }
