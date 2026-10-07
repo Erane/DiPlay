@@ -15,7 +15,8 @@ either yields a build that "succeeds" but is useless on the car.
 | JDK (used by Gradle) | `$HOME/.gradle/jdks/jdk-25.0.4.1+1` (Temurin 25) |
 | Android SDK | `D:/android-build/sdk` (platform `android-37.0`, build-tools `36.0.0`, NDK `28.2.13676358`) |
 | Gradle | wrapper, `gradle-9.5.0` (`gradle/wrapper/gradle-wrapper.properties`) |
-| Python (dex gate) | `C:/Python311/python.exe` |
+| Python (dex gate) | `D:/App/Python311/python.exe` |
+| adb | `C:/Users/90721/platform-tools/adb.exe` (platform-tools 37.0.1; a second copy lives in `D:/android-build/sdk/platform-tools`). Not on PATH inside Git Bash - call it by full path. |
 | Network | build with `--offline`; dependencies are already in the Gradle cache |
 
 ## Rule 1 — build in an ASCII directory
@@ -94,7 +95,7 @@ md5sum /tmp/m/assets/offline-mfi/* /d/android-build/identity/offline-mfi/*   # p
 # expect: name='com.shihab.diplay.android6', sdkVersion:'18', native-code includes armeabi-v7a
 
 # 4) API-floor gate: every framework call above the floor must sit behind a runtime SDK_INT check.
-/c/Python311/python.exe scripts/check-dex-api-levels.py "$APK" --floor 19 \
+/d/App/Python311/python.exe scripts/check-dex-api-levels.py "$APK" --floor 19 \
   --api /d/android-build/sdk/platforms/android-37.0/data/api-versions.xml \
   --dexdump /d/android-build/sdk/build-tools/36.0.0/dexdump.exe
 ```
@@ -116,6 +117,82 @@ rm -rf /d/diplay-build /tmp/m
 
 Give the filename a meaningful suffix (what the build proves or fixes) and record the SHA-256 so the
 on-car log can be matched to the exact binary. The APK files stay ignored by Git.
+
+## adb and on-device logging (this machine)
+
+Known devices: `b069ee3b` = Samsung SM-G5108 bench phone (msm8916, Android 4.4.4, API 19,
+armeabi-v7a, Dalvik). The real target is the Allwinner T3 head unit (Android 4.4.2, API 19) -
+same floor, same code paths.
+
+### Git Bash traps when driving adb
+
+MSYS rewrites arguments that look like POSIX paths, which silently corrupts device paths:
+
+```sh
+export MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*'   # before any adb pull/push with /sdcard/...
+ADB=/c/Users/90721/platform-tools/adb.exe
+"$ADB" pull /sdcard/legacy-log.txt D:/android-build/device-logs/   # local side MUST be D:/ form
+```
+
+With conversion disabled the local destination stops accepting `/d/...` - always write the
+local side as a Windows path. For pure `adb shell` commands (no device paths in argv) the
+export is unnecessary.
+
+### Device analysis
+
+```sh
+"$ADB" devices -l
+"$ADB" shell getprop | grep -E "ro.build.version.(sdk|release)|ro.product.(manufacturer|model)|cpu.abi|dalvik.vm.version"
+"$ADB" shell cat /proc/cpuinfo | grep -E "Processor|Features"          # NEON present?
+"$ADB" shell cat /proc/net/udp | grep :14E9                            # who holds mDNS 5353
+"$ADB" shell ps | grep mdnsd                                           # ROM's own mDNS daemon
+```
+
+The bench phone answers all of these; the head unit exposes the same props through its own
+USB port if it has one (most T3 units do, vendor adb may need enabling in its settings).
+
+### Install flows
+
+- `"$ADB" install -r app.apk` updates in place and keeps the app's settings, but only under
+  the SAME signing key. A different key fails with `INSTALL_PARSE_FAILED_INCONSISTENT_CERTIFICATES`;
+  the only way forward is `"$ADB" uninstall com.shihab.diplay.android6` first (settings lost,
+  AirPlay display options must be re-entered).
+- First launch after (re)install runs legacy MultiDex extraction: give a 4.4 unit 30-60 s
+  before judging "the app is stuck".
+
+### Log retrieval - bench phone (adb attached)
+
+```sh
+"$ADB" logcat -c                                                  # clear, then reproduce
+"$ADB" logcat -v time > D:/android-build/device-logs/session.log  # streaming capture
+"$ADB" pull /sdcard/legacy-log.txt D:/android-build/device-logs/  # the app's own file log
+"$ADB" pull /sdcard/diplay-crash.txt D:/android-build/device-logs/
+```
+
+App-side files: `/sdcard/legacy-log.txt`, `/sdcard/diplay-crash.txt`, `/sdcard/diplay-started.txt`
+(every write fans out to the storage root, the app external dir and the private dir; the largest
+copy wins). The 系统档案 header inside each carries `App: <pkg> <version>` so a pulled log is
+matched to the exact APK build.
+
+### Log retrieval - head unit (no adb, USB stick)
+
+1. Copy the APK to the stick, install from the unit's file manager, reproduce (a success plus
+   several failures makes the log most useful).
+2. Copy back with the unit's file manager, from `/sdcard/`: `legacy-log.txt` (plus
+   `legacy-log.1.txt` if present), `diplay-crash.txt`, `diplay-started.txt`. Fallback path:
+   `/sdcard/Android/data/com.shihab.diplay.android6/files/`.
+3. `legacy-log.txt` includes a full mirror of this process's logcat lines (`LogcatMirror`,
+   PID-filtered), so stack traces that previously lived only in logcat are in the file. It
+   rotates at 24 MB into `legacy-log.1.txt`; a running video session produces roughly 100 MB/h.
+
+### Known quirks carried over from the bench phone (assume the T3 shares them)
+
+- The ROM's own `mdnsd` holds UDP 5353 and JmDNS cannot bind (EADDRINUSE). The controller
+  treats Bonjour as optional and continues over iAP2, which carries the AirPlay endpoint in
+  CarPlayStartSession - do not "fix" this by making Bonjour mandatory again.
+- Dalvik 4.x rejects `InetAddress.getByName("::")` binds ("Can't bind to a link-local address
+  without a scope id") - every session socket must bind via `listenerBindAddress()` from
+  `shared/src/main/java/com/shilapi/xcertplay/Compat.kt`.
 
 ## Environment limitations to know
 

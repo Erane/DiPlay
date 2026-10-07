@@ -39,3 +39,7 @@ release-signing.properties
 *.key
 *.apk
 *.aab
+
+# stray local artifacts
+android-buildsdk/
+scripts/__pycache__/
