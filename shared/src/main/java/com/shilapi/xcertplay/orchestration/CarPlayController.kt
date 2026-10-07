@@ -25,6 +25,7 @@ import android.os.Looper
 import android.provider.Settings
 import android.util.Log
 import com.shilapi.xcertplay.compatNoBackupFilesDir
+import com.shilapi.xcertplay.compatAlternateSetting
 import com.shilapi.xcertplay.airplay.AirPlayListenerIdentity
 import com.shilapi.xcertplay.airplay.AirPlayTcpAccepted
 import com.shilapi.xcertplay.airplay.AirPlayConfig
@@ -197,6 +198,9 @@ class CarPlayController(
     private val executor: ExecutorService = Executors.newSingleThreadExecutor()
     private val touchExecutor: ExecutorService = Executors.newSingleThreadExecutor()
     private val tunnelExecutor: ExecutorService = Executors.newSingleThreadExecutor()
+    // USB device-list/descriptor probes can block in the kernel while the iPhone re-enumerates;
+    // keeping them off `executor` and off the main thread stops a wedge from freezing the UI.
+    private val usbProbeExecutor: ExecutorService = Executors.newSingleThreadExecutor()
     private val mainHandler = Handler(Looper.getMainLooper())
     private val hostId = UUID.randomUUID().toString().uppercase(Locale.US)
     private val systemBuid = UUID.randomUUID().toString().uppercase(Locale.US)
@@ -207,6 +211,7 @@ class CarPlayController(
     private val availabilityPollGeneration = AtomicInteger(0)
     private var permissionPollGeneration = 0
     private var reenumerationAttempts = 0
+    private var reenumerationDeadlineNanos = 0L
     private var lastReportedStatus: CarPlayStatus? = null
     private var mfiResetLogged = false
 
@@ -570,6 +575,7 @@ class CarPlayController(
         permissionPollGeneration += 1
         touchExecutor.shutdownNow()
         tunnelExecutor.shutdownNow()
+        usbProbeExecutor.shutdownNow()
         val service = vpnService
         unbindVpn()
         Thread(
@@ -1152,10 +1158,13 @@ class CarPlayController(
             val receiveDiagnostics = WirelessReceiveDiagnostics(hotspotInfo.interfaceName)
             val diagnostics = WirelessStartupDiagnostics(
                 sample = {
+                    // The RFCOMM counters are the only way to tell a silent iPhone from a 4.x ROM
+                    // whose connect() succeeded without a working channel, so they get a timeline.
+                    val rfcomm = bluetoothStream?.let { "\nrfcomm ${it.byteEvidence()}" } ?: ""
                     "${WirelessInterfaceDiagnostics.snapshot(hotspotInfo.interfaceName)} " +
                         "${startedHotspot?.connectionDiagnosticSnapshot() ?: "association=unknown"} " +
                         (startedBonjour?.diagnosticSnapshot() ?: "bonjour=not_started") + "\n" +
-                        receiveDiagnostics.snapshot()
+                        receiveDiagnostics.snapshot() + rfcomm
                 },
                 log = { message -> if (!isStaleWirelessRun(generation)) debugLog(message) },
             )
@@ -1259,50 +1268,7 @@ class CarPlayController(
                     "isConnected=${isBluetoothDeviceConnected(device)}",
             )
             logBluetoothLinkTruth(device)
-            debugLog(
-                "wireless RFCOMM connecting address=${device.address} " +
-                    "uuid=$IAP2_IPHONE_UUID",
-            )
-            val socket = synchronized(wirelessResourceLock) {
-                if (isStaleWirelessRun(generation)) return
-                device.createRfcommSocketToServiceRecord(UUID.fromString(IAP2_IPHONE_UUID))
-                    .also { bluetoothSocket = it }
-            }
-            logBluetoothConnectionSnapshot(device, "before-connect")
-            val bluetoothStarted = System.nanoTime()
-            try {
-                connectBluetoothSocket(socket, device.address)
-                connectionDiagnostic("Bluetooth connect completed elapsedMs=${elapsedMillis(bluetoothStarted)}")
-            } catch (error: Throwable) {
-                connectionDiagnostic(
-                    "Bluetooth connect failed elapsedMs=${elapsedMillis(bluetoothStarted)} " +
-                        "failureClass=${diagnosticFailureClass(error)}",
-                )
-                logBluetoothConnectionSnapshot(device, "after-failure")
-                throw error
-            }
-            debugLog("wireless RFCOMM connected address=${device.address}")
-            if (isStaleWirelessRun(generation)) {
-                return
-            }
-            val stream = synchronized(wirelessResourceLock) {
-                if (isStaleWirelessRun(generation)) return
-                BluetoothRfcommDuplexStream(socket).also { bluetoothStream = it }
-            }
-            val channel = Iap2Session.openWireless(
-                stream,
-                traceContext = "wireless-rfcomm",
-                onTrace = ::debugLog,
-                onArtwork = ::onArtworkTransfer,
-            )
-            synchronized(wirelessResourceLock) {
-                if (isStaleWirelessRun(generation)) {
-                    channel.close()
-                    return
-                }
-                csm = channel
-            }
-            debugLog("wireless iAP2 CSM channel opened over RFCOMM")
+            val channel = openReadyRfcommLink(device, generation)
             if (isStaleWirelessRun(generation)) {
                 return
             }
@@ -1363,6 +1329,7 @@ class CarPlayController(
             }
             when (result.terminal) {
                 Iap2WirelessControlTerminal.CHANNEL_CLOSED -> {
+                    logRfcommByteEvidence("channel-closed")
                     debugLog(
                         "wireless RFCOMM EOF: iap2State=${result.stage} " +
                             "wirelessCarPlayAvailable=${result.wirelessCarPlayAvailableSeen} " +
@@ -1392,6 +1359,7 @@ class CarPlayController(
                 }
                 Iap2WirelessControlTerminal.TIMED_OUT ->
                     if (!wirelessActiveReported.get()) {
+                        logRfcommByteEvidence("control-loop-timed-out")
                         onStatus(CarPlayStatus.ControlEnded)
                     }
             }
@@ -1402,6 +1370,7 @@ class CarPlayController(
             if (wirelessActiveReported.get() && error !is Error) {
                 debugLog("wireless RFCOMM control ended after tunnel handoff: ${error.message}")
             } else {
+                logRfcommByteEvidence("bring-up-failed")
                 debugLog("wireless bring-up failed", error)
                 if (error is Error) throw error
                 fail(error, generation)
@@ -1629,6 +1598,113 @@ class CarPlayController(
         )
     }
 
+    /**
+     * Tries each RFCOMM transport in turn until one carries a ready iAP2 link.
+     *
+     * A 4.x ROM can return from `connect()` without a working channel, and since the accessory
+     * sends the iAP2 marker while waiting for the phone's, liveness can only be judged once a CSM
+     * session exists. Each transport therefore gets its own connect/open/probe cycle, and its
+     * byte-level outcome is reported before the next one is tried.
+     */
+    private fun openReadyRfcommLink(device: BluetoothDevice, generation: Int): Iap2Session {
+        val outcomes = ArrayList<String>()
+        for (strategy in rfcommTransports(device)) {
+            val mode = strategy.mode
+            if (isStaleWirelessRun(generation)) {
+                throw IOException("Wireless run was replaced during RFCOMM setup")
+            }
+            debugLog(
+                "wireless RFCOMM connecting mode=$mode address=${device.address} uuid=$IAP2_IPHONE_UUID",
+            )
+            val socket = strategy.create(device)
+            if (socket == null) {
+                connectionDiagnostic("RFCOMM attempt mode=$mode result=socket-unavailable")
+                outcomes += "$mode=socket-unavailable"
+                continue
+            }
+            synchronized(wirelessResourceLock) { bluetoothSocket = socket }
+            logBluetoothConnectionSnapshot(device, "before-connect")
+            val connectStarted = System.nanoTime()
+            try {
+                connectBluetoothSocket(socket, device.address)
+                connectionDiagnostic(
+                    "Bluetooth connect completed mode=$mode elapsedMs=${elapsedMillis(connectStarted)}",
+                )
+            } catch (error: Throwable) {
+                connectionDiagnostic(
+                    "Bluetooth connect failed mode=$mode elapsedMs=${elapsedMillis(connectStarted)} " +
+                        "failureClass=${diagnosticFailureClass(error)}",
+                )
+                logBluetoothConnectionSnapshot(device, "after-failure")
+                outcomes += "$mode=connect-failed:${diagnosticFailureClass(error)}"
+                closeBluetoothBootstrapTransport()
+                continue
+            }
+            debugLog("wireless RFCOMM connected mode=$mode address=${device.address}")
+
+            val stream = synchronized(wirelessResourceLock) {
+                BluetoothRfcommDuplexStream(socket).also { bluetoothStream = it }
+            }
+            val channel = Iap2Session.openWireless(
+                stream,
+                traceContext = "wireless-rfcomm-$mode",
+                onTrace = ::debugLog,
+                onArtwork = ::onArtworkTransfer,
+            )
+            synchronized(wirelessResourceLock) { csm = channel }
+            debugLog("wireless iAP2 CSM channel opened over RFCOMM mode=$mode")
+            logRfcommByteEvidence("after-csm-open")
+
+            val ready = try {
+                channel.awaitReady(RFCOMM_PROBE_READY_TIMEOUT_MILLIS)
+            } catch (error: Throwable) {
+                if (error is Error) throw error
+                logRfcommByteEvidence("probe-failed")
+                outcomes += "$mode=await-ready-failed:${diagnosticFailureClass(error)}"
+                closeBluetoothBootstrapTransport()
+                continue
+            }
+            if (ready) {
+                connectionDiagnostic("RFCOMM attempt mode=$mode result=link-ready")
+                return channel
+            }
+            logRfcommByteEvidence("probe-timed-out")
+            connectionDiagnostic("RFCOMM attempt mode=$mode result=no-iap2-response")
+            outcomes += "$mode=no-iap2-response"
+            closeBluetoothBootstrapTransport()
+        }
+        throw IOException("No RFCOMM transport produced a ready iAP2 link: ${outcomes.joinToString(" ")}")
+    }
+
+    private class RfcommTransport(
+        val mode: String,
+        val create: (BluetoothDevice) -> BluetoothSocket?,
+    )
+
+    /**
+     * Ordered RFCOMM transports. `insecure` and the reflected raw-channel socket are fallbacks for
+     * ROMs whose secure RFCOMM or SDP lookup is a stub; the raw channel skips SDP entirely, so its
+     * channel number is a heuristic rather than a discovered value.
+     */
+    private fun rfcommTransports(device: BluetoothDevice): List<RfcommTransport> {
+        val service = UUID.fromString(IAP2_IPHONE_UUID)
+        return listOf(
+            RfcommTransport("secure") {
+                runCatching { device.createRfcommSocketToServiceRecord(service) }.getOrNull()
+            },
+            RfcommTransport("insecure") {
+                runCatching { device.createInsecureRfcommSocketToServiceRecord(service) }.getOrNull()
+            },
+            RfcommTransport("raw-channel$RFCOMM_RAW_CHANNEL") {
+                runCatching {
+                    val create = BluetoothDevice::class.java
+                        .getMethod("createRfcommSocket", Int::class.javaPrimitiveType)
+                    create.invoke(device, RFCOMM_RAW_CHANNEL) as BluetoothSocket
+                }.getOrNull()
+            },
+        )
+    }
+
     private fun closeBluetoothBootstrapTransport() {
         val activeCsm = csm
         csm = null
@@ -1636,7 +1712,11 @@ class CarPlayController(
 
         val activeStream = bluetoothStream
         bluetoothStream = null
-        if (activeStream != null) closeBestEffort("wireless RFCOMM stream") { activeStream.close() }
+        if (activeStream != null) {
+            // The CSM close above already closed this stream, so these are its final totals.
+            connectionDiagnostic("RFCOMM bytes point=teardown ${activeStream.byteEvidence()}")
+            closeBestEffort("wireless RFCOMM stream") { activeStream.close() }
+        }
 
         val activeSocket = bluetoothSocket
         bluetoothSocket = null
@@ -1702,21 +1782,34 @@ class CarPlayController(
                 permissionPollGeneration++
                 when (phase) {
                     Phase.REENUMERATION, Phase.IPHONE -> {
-                        val pre21 = Build.VERSION.SDK_INT < 21
-                        val configuration = if (pre21) null else IphoneCarPlayConfiguration.find(result.device)
-                        val carPlayActive = configuration != null ||
-                            (pre21 && IphoneCarPlayConfiguration.isCarPlayConfigActive(result.device))
+                        val carPlayActive = isCarPlayConfigurationActive(result.device)
+                        val configurationId =
+                            if (Build.VERSION.SDK_INT >= 21) {
+                                IphoneCarPlayConfiguration.find(result.device)?.id?.toString() ?: "none"
+                            } else {
+                                "pre-21"
+                            }
                         connectionDiagnostic(
                             "USB configuration ready=$carPlayActive " +
-                                "configurationId=${configuration?.id ?: if (pre21) "pre-21" else "none"} " +
+                                "configurationId=$configurationId " +
                                 "reenumerationAttempts=$reenumerationAttempts " +
                                 "action=${when {
                                     carPlayActive -> "reuse-descriptors"
+                                    SKIP_FORCED_REENUMERATION -> "skip-forced-reenum"
                                     reenumerationAttempts < MAXIMUM_REENUMERATION_ATTEMPTS -> "request-transition"
                                     else -> "reject-missing-configuration"
                                 }}",
                         )
                         if (carPlayActive) {
+                            openDataPaths(result.device)
+                        } else if (SKIP_FORCED_REENUMERATION) {
+                            // The 0x52 forced re-enumeration wedges this unit's USB host: the iPhone's
+                            // disconnect/reconnect freezes the whole head unit (reproduced with
+                            // community builds too), so run iAP2/MFi on whatever config is active now.
+                            connectionDiagnostic(
+                                "usb/config skipping forced 0x52 re-enumeration; " +
+                                    "attempting iAP2 on the active configuration",
+                            )
                             openDataPaths(result.device)
                         } else if (reenumerationAttempts < MAXIMUM_REENUMERATION_ATTEMPTS) {
                             beginReenumeration(result.device)
@@ -1768,6 +1861,8 @@ class CarPlayController(
     private fun beginReenumeration(device: UsbDevice) {
         phase = Phase.REENUMERATION
         reenumerationAttempts += 1
+        reenumerationDeadlineNanos =
+            System.nanoTime() + REENUMERATION_WATCHDOG_MILLIS * 1_000_000L
         connectionDiagnostic("USB transition requested count=$reenumerationAttempts")
         onStatus(CarPlayStatus.SelectingConfiguration)
         iphoneHost.requestCarPlayReenumerationAsync(device, executor) { transition ->
@@ -1777,6 +1872,69 @@ class CarPlayController(
                 is IphoneUsbHost.TransitionResult.Failed -> fail(transition.error)
             }
         }
+        // The attach broadcast is the primary trigger, but a 4.x USB host can re-enumerate the
+        // iPhone without re-delivering it, so poll the device list as a watchdog too.
+        scheduleAvailabilityPoll(Phase.REENUMERATION, ::checkReenumeration)
+    }
+
+    /** True when the iPhone currently exposes the CarPlay configuration (NCM + USBMUX). */
+    private fun isCarPlayConfigurationActive(device: UsbDevice): Boolean =
+        if (Build.VERSION.SDK_INT >= 21) {
+            IphoneCarPlayConfiguration.find(device) != null
+        } else {
+            IphoneCarPlayConfiguration.isCarPlayConfigActive(device)
+        }
+
+    /**
+     * Watchdog for [beginReenumeration]. Distinguishes "iPhone never came back" (absent, or present
+     * but still the old configuration) from "it came back but the attach broadcast was lost", and
+     * recovers the latter by re-entering the permission/config path on the fresh device object.
+     *
+     * The device-list scan and descriptor reads are USB calls that can block in the kernel while the
+     * iPhone is mid-re-enumeration, so they run on [usbProbeExecutor]: a wedge there stalls only the
+     * probe, whereas the same call on the main thread freezes the whole full-screen UI.
+     */
+    private fun checkReenumeration() {
+        if (closed || phase != Phase.REENUMERATION) return
+        usbProbeExecutor.execute {
+            val device = runCatching { iphoneHost.discover().firstOrNull() }.getOrNull()
+            val active = device != null &&
+                runCatching { isCarPlayConfigurationActive(device) }.getOrDefault(false)
+            mainHandler.post { onReenumerationPoll(device, active) }
+        }
+    }
+
+    private fun onReenumerationPoll(device: UsbDevice?, carPlayConfigActive: Boolean) {
+        if (closed || phase != Phase.REENUMERATION) return
+        if (device == null) {
+            connectionDiagnostic("usb/reenum poll iPhone=absent attempts=$reenumerationAttempts")
+            scheduleAvailabilityPoll(Phase.REENUMERATION, ::checkReenumeration)
+            return
+        }
+        connectionDiagnostic(
+            "usb/reenum poll iPhone=present carPlayConfig=$carPlayConfigActive " +
+                "attempts=$reenumerationAttempts",
+        )
+        if (carPlayConfigActive) {
+            availabilityPollGeneration.incrementAndGet()
+            requestIphonePermission(device)
+            return
+        }
+        if (System.nanoTime() >= reenumerationDeadlineNanos) {
+            if (reenumerationAttempts < MAXIMUM_REENUMERATION_ATTEMPTS) {
+                connectionDiagnostic("usb/reenum watchdog retrying vendor request")
+                beginReenumeration(device)
+            } else {
+                fail(
+                    IphoneUsbException.Protocol(
+                        "iPhone acknowledged the CarPlay request but never re-enumerated " +
+                            "into the CarPlay USB configuration",
+                    ),
+                )
+            }
+            return
+        }
+        scheduleAvailabilityPoll(Phase.REENUMERATION, ::checkReenumeration)
     }
 
     private fun onIphoneAttached(device: UsbDevice) {
@@ -1843,8 +2001,8 @@ class CarPlayController(
                 ?: throw IphoneUsbException.Protocol("iPhone configuration does not expose an NCM function")
         }
         debugLog(
-            "ncm config=$configurationId control=${function.control.id}/${function.control.alternateSetting}" +
-                " data=${function.data.id}/${function.data.alternateSetting}" +
+            "ncm config=$configurationId control=${function.control.id}/${function.control.compatAlternateSetting() ?: "n/a"}" +
+                " data=${function.data.id}/${function.data.compatAlternateSetting() ?: "n/a"}" +
                 " status=${function.statusIn?.address?.let { "0x${it.toString(16)}" } ?: "none"}" +
                 " in=0x${function.bulkIn.address.toString(16)} out=0x${function.bulkOut.address.toString(16)}",
         )
@@ -2334,6 +2492,16 @@ class CarPlayController(
         }
     }
 
+    /**
+     * Byte-level RFCOMM evidence at a named point in the wireless run. A 4.x ROM can return from
+     * `connect()` without a working channel, and the resulting iAP2 timeout looks identical to an
+     * iPhone that simply refuses to answer, so the counters are what separates the two.
+     */
+    private fun logRfcommByteEvidence(point: String) {
+        val stream = bluetoothStream ?: return
+        connectionDiagnostic("RFCOMM bytes point=$point ${stream.byteEvidence()}")
+    }
+
     /** Reads cached service metadata only; it does not start/cancel discovery or require SCAN. */
     private fun logBluetoothConnectionSnapshot(device: BluetoothDevice, point: String) {
         try {
@@ -2771,11 +2939,22 @@ class CarPlayController(
         private const val DEVICE_AVAILABILITY_POLL_INTERVAL_MILLIS = 2_000L
         private const val WIRELESS_HANDOFF_TIMEOUT_MILLIS = 45_000L
         private const val RFCOMM_CONNECT_TIMEOUT_MILLIS = 15_000L
+        // The link engine resends the iAP2 marker every second, so this window covers several
+        // marker attempts per transport before that transport is judged dead and the next is tried.
+        private const val RFCOMM_PROBE_READY_TIMEOUT_MILLIS = 8_000L
+        private const val RFCOMM_RAW_CHANNEL = 1
         // Identification and MFi auth answer in under a second on a listening iPhone; waiting the
         // whole control-loop deadline only hides "the phone never replies" for five minutes.
         private const val IAP2_HANDSHAKE_TIMEOUT_MILLIS = 20_000L
         private const val SDP_FETCH_WAIT_MILLIS = 2_000L
         private const val MAXIMUM_REENUMERATION_ATTEMPTS = 2
+        // The 0x52 forced re-enumeration freezes this Allwinner unit's USB host (whole-head-unit
+        // lockup needing a power cycle, on community builds as well), so it is disabled by default
+        // and iAP2/MFi is attempted on the already-active configuration instead.
+        private const val SKIP_FORCED_REENUMERATION = true
+        // How long to wait for the iPhone to physically re-enumerate into the CarPlay configuration
+        // before re-issuing the vendor request. A real re-enumeration completes in ~1-2s.
+        private const val REENUMERATION_WATCHDOG_MILLIS = 8_000L
         private const val EXECUTOR_CLOSE_TIMEOUT_MILLIS = 2_000L
         private const val ADAPTER_ADDRESS_PLACEHOLDER = "02:00:00:00:00:00"
         private val BLUETOOTH_ADDRESS = Regex("^[0-9A-Fa-f]{2}(:[0-9A-Fa-f]{2}){5}$")

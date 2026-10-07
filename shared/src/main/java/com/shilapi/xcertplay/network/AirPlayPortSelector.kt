@@ -1,6 +1,7 @@
 package com.shilapi.xcertplay.network
 
 import java.net.BindException
+import java.net.Inet6Address
 import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.ServerSocket
@@ -61,7 +62,47 @@ object AirPlayPortSelector {
                 return reportFallback(server, preferredPort, onFallback)
             }
         }
-        return reportFallback(bindPort(address, 0), preferredPort, onFallback)
+        // An ephemeral bind on the specific address distinguishes "every port busy" from "address
+        // gone". If even port 0 fails with EADDRNOTAVAIL, the address is no longer on any up
+        // interface (the Wi-Fi link is down or mid-flap), so retrying ports on it is pointless —
+        // bind the wildcard instead, which always succeeds and still reaches the iPhone via the
+        // host address advertised over Bonjour/iAP2.
+        try {
+            return reportFallback(bindPort(address, 0), preferredPort, onFallback)
+        } catch (error: BindException) {
+            if (!isAddressUnavailable(error)) throw error
+        }
+        val wildcard = bindWildcard(address, preferredPort, fallbackPorts)
+        return if (wildcard.localPort != preferredPort) {
+            reportFallback(wildcard, preferredPort, onFallback)
+        } else {
+            wildcard
+        }
+    }
+
+    private fun bindWildcard(
+        address: InetAddress,
+        preferredPort: Int,
+        fallbackPorts: Iterable<Int>,
+    ): ServerSocket {
+        val wildcard = if (address is Inet6Address) {
+            InetAddress.getByName("::")
+        } else {
+            InetAddress.getByName("0.0.0.0")
+        }
+        tryBind(wildcard, preferredPort)?.let { return it }
+        for (port in fallbackPorts) {
+            if (port == preferredPort) continue
+            tryBind(wildcard, port)?.let { return it }
+        }
+        return bindPort(wildcard, 0)
+    }
+
+    /** True when the address itself cannot be assigned (EADDRNOTAVAIL), not merely the port busy. */
+    private fun isAddressUnavailable(error: BindException): Boolean {
+        val message = error.message ?: return false
+        return message.contains("EADDRNOTAVAIL") ||
+            message.contains("Cannot assign requested address")
     }
 
     private fun tryBind(address: InetAddress, port: Int): ServerSocket? = try {

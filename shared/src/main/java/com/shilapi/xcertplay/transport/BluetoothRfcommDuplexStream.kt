@@ -3,6 +3,7 @@ package com.shilapi.xcertplay.transport
 import android.bluetooth.BluetoothSocket
 import java.io.IOException
 import java.util.ArrayDeque
+import java.util.concurrent.atomic.AtomicLong
 import kotlin.math.min
 
 /**
@@ -25,12 +26,33 @@ class BluetoothRfcommDuplexStream(
     private var socketCloseStarted = false
     private var failure: IOException? = null
 
+    private val sentBytes = AtomicLong()
+    private val receivedBytes = AtomicLong()
+    private val createdNanos = System.nanoTime()
+    @Volatile private var firstReceived: String = "none"
+    @Volatile private var peerEndedAtNanos = 0L
+    @Volatile private var readFailureClass: String = "none"
+    @Volatile private var writeFailureClass: String = "none"
+
     private val reader = Thread(::readLoop, "xcertplay-bluetooth-rfcomm-reader").apply {
         isDaemon = true
     }
 
     init {
         reader.start()
+    }
+
+    /**
+     * What actually crossed this socket, for diagnosing a 4.x ROM whose RFCOMM `connect()` returns
+     * success without a working channel: `txBytes`/`rxBytes` both zero with no EOF means the peer
+     * never answered at all, while an EOF timestamp means the link was closed from the other side.
+     */
+    fun byteEvidence(): String {
+        val endedAt = peerEndedAtNanos
+        return "txBytes=${sentBytes.get()} rxBytes=${receivedBytes.get()} firstRx=$firstReceived " +
+            "eof=${endedAt != 0L} " +
+            "eofAfterMs=${if (endedAt == 0L) "n/a" else ((endedAt - createdNanos) / NANOS_PER_MILLISECOND).toString()} " +
+            "readFailure=$readFailureClass writeFailure=$writeFailureClass"
     }
 
     override fun send(data: ByteArray) {
@@ -42,7 +64,9 @@ class BluetoothRfcommDuplexStream(
             try {
                 output.write(data)
                 output.flush()
+                sentBytes.addAndGet(data.size.toLong())
             } catch (io: IOException) {
+                if (writeFailureClass == "none") writeFailureClass = io.javaClass.simpleName
                 fail(io)
                 throw io
             }
@@ -124,6 +148,7 @@ class BluetoothRfcommDuplexStream(
                 val buffer = ByteArray(readSize)
                 when (val count = input.read(buffer)) {
                     -1 -> {
+                        if (peerEndedAtNanos == 0L) peerEndedAtNanos = System.nanoTime()
                         synchronized(lock) {
                             peerEnded = true
                             lock.notifyAll()
@@ -132,11 +157,14 @@ class BluetoothRfcommDuplexStream(
                     }
 
                     0 -> Unit
-                    else -> synchronized(lock) {
-                        if (closed) return
-                        pending.addLast(if (count == buffer.size) buffer else buffer.copyOf(count))
-                        pendingBytes += count
-                        lock.notifyAll()
+                    else -> {
+                        recordReceived(buffer, count)
+                        synchronized(lock) {
+                            if (closed) return
+                            pending.addLast(if (count == buffer.size) buffer else buffer.copyOf(count))
+                            pendingBytes += count
+                            lock.notifyAll()
+                        }
                     }
                 }
             }
@@ -146,8 +174,12 @@ class BluetoothRfcommDuplexStream(
                 readFailure = IOException("Bluetooth RFCOMM reader was interrupted", interrupted)
             }
         } catch (io: IOException) {
-            if (!isClosed()) readFailure = io
+            if (!isClosed()) {
+                recordReadFailure(io)
+                readFailure = io
+            }
         } catch (failure: Throwable) {
+            recordReadFailure(failure)
             readFailure = IOException("Bluetooth RFCOMM reader failed", failure)
             if (failure is Error) throw failure
         } finally {
@@ -157,6 +189,18 @@ class BluetoothRfcommDuplexStream(
                 fail(closeFailure)
             }
         }
+    }
+
+    private fun recordReceived(buffer: ByteArray, count: Int) {
+        receivedBytes.addAndGet(count.toLong())
+        if (firstReceived == "none") {
+            firstReceived = buffer.take(count.coerceAtMost(FIRST_RX_PREVIEW_BYTES))
+                .joinToString("") { byte -> "%02x".format(byte.toInt() and 0xff) }
+        }
+    }
+
+    private fun recordReadFailure(failure: Throwable) {
+        if (readFailureClass == "none") readFailureClass = failure.javaClass.simpleName
     }
 
     private fun takePendingLocked(maxBytes: Int): ByteArray? {
@@ -214,6 +258,7 @@ class BluetoothRfcommDuplexStream(
         private const val MAX_PENDING_BYTES = 65_536
         private const val CLOSE_JOIN_MILLIS = 1_000L
         private const val NANOS_PER_MILLISECOND = 1_000_000L
+        private const val FIRST_RX_PREVIEW_BYTES = 16
         private val EMPTY = ByteArray(0)
     }
 }

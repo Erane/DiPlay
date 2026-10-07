@@ -7,6 +7,7 @@ import android.hardware.usb.UsbConstants
 import android.hardware.usb.UsbRequest
 import android.os.Build
 import android.util.Log
+import com.shilapi.xcertplay.compatAlternateSetting
 import java.io.Closeable
 import java.nio.ByteBuffer
 import java.util.ArrayDeque
@@ -322,7 +323,8 @@ class NcmUsbBridge internal constructor(
                 val firstClaimed = connection.claimInterface(first, true)
                 Log.i(
                     IphoneCarPlayConfiguration.TAG,
-                    "claim iface=${first.id}/${first.alternateSetting} class=${first.interfaceClass}" +
+                    "claim iface=${first.id}/${first.compatAlternateSetting() ?: "n/a"} " +
+                        "class=${first.interfaceClass}" +
                         " subclass=${first.interfaceSubclass} proto=${first.interfaceProtocol} ok=$firstClaimed",
                 )
                 if (!firstClaimed) {
@@ -335,7 +337,7 @@ class NcmUsbBridge internal constructor(
                     val dataClaimed = connection.claimInterface(function.data, true)
                     Log.i(
                         IphoneCarPlayConfiguration.TAG,
-                        "claim iface=${function.data.id}/${function.data.alternateSetting}" +
+                        "claim iface=${function.data.id}/${function.data.compatAlternateSetting() ?: "n/a"}" +
                             " class=${function.data.interfaceClass} ok=$dataClaimed",
                     )
                     if (!dataClaimed) {
@@ -346,16 +348,20 @@ class NcmUsbBridge internal constructor(
                     claimed.add(function.data)
                 }
                 // UsbDeviceConnection.setInterface is API 21; pre-21 issues SET_INTERFACE directly.
+                // getAlternateSetting is API 21 as well, so pre-21 uses the setting discovery
+                // selected: only NCM data alternate setting 1 carries the bulk endpoint pair.
+                val dataAlternateSetting = function.data.compatAlternateSetting()
+                    ?: NcmFunctionDiscovery.DATA_ALTERNATE_SETTING
                 val altSelected = if (Build.VERSION.SDK_INT >= 21) {
                     connection.setInterface(function.data)
                 } else {
                     connection.controlTransfer(
-                        0x01, 0x01, function.data.alternateSetting, function.data.id, null, 0, 0,
+                        0x01, 0x01, dataAlternateSetting, function.data.id, null, 0, 0,
                     ) >= 0
                 }
                 Log.i(
                     IphoneCarPlayConfiguration.TAG,
-                    "setInterface iface=${function.data.id}/${function.data.alternateSetting} ok=$altSelected",
+                    "setInterface iface=${function.data.id}/$dataAlternateSetting ok=$altSelected",
                 )
                 if (!altSelected) {
                     throw IphoneUsbException.DeviceUnavailable(

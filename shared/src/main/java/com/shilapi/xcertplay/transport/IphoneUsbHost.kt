@@ -15,6 +15,7 @@ import android.hardware.usb.UsbManager
 import android.os.Build
 import android.hardware.usb.UsbRequest
 import android.util.Log
+import com.shilapi.xcertplay.compatAlternateSetting
 import java.io.Closeable
 import java.io.IOException
 import java.nio.ByteBuffer
@@ -160,6 +161,10 @@ class IphoneUsbHost(
                         "CarPlay configuration request transferred $transferred of ${response.size} bytes",
                     )
                 }
+                Log.i(
+                    IphoneCarPlayConfiguration.TAG,
+                    "carplay reenum vendor 0x52 ack byte=0x${(response[0].toInt() and 0xff).toString(16)}",
+                )
                 TransitionResult.ReenumerationRequested
             })
         }
@@ -265,7 +270,7 @@ class IphoneUsbHost(
                 ?: throw IphoneUsbException.Protocol("USBMUX interface exposes no bulk endpoint pair")
             Log.i(
                 IphoneCarPlayConfiguration.TAG,
-                "usbmux iface=${usbMux.id} alt=${usbMux.alternateSetting} " +
+                "usbmux iface=${usbMux.id} alt=${usbMux.compatAlternateSetting() ?: "n/a"} " +
                     "class=${usbMux.interfaceClass}/${usbMux.interfaceSubclass}/${usbMux.interfaceProtocol} " +
                     "endpoints=${usbMux.endpointCount} " +
                     "out=${describeUsbEndpoint(endpoints.first)} " +

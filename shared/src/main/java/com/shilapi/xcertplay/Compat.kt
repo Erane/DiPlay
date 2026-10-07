@@ -1,12 +1,21 @@
 package com.shilapi.xcertplay
 
 import android.content.Context
+import android.hardware.usb.UsbInterface
 import android.os.Build
 import java.io.File
 
 /** getNoBackupFilesDir exists from API 21; older units fall back to the same on-disk path. */
 fun Context.compatNoBackupFilesDir(): File =
     if (Build.VERSION.SDK_INT >= 21) noBackupFilesDir else File(applicationInfo.dataDir, "no_backup")
+
+/**
+ * UsbInterface.getAlternateSetting is API 21 and is absent from the 4.x framework, so reading it
+ * there throws NoSuchMethodError rather than returning a default. Null means "this unit cannot
+ * report an alternate setting", which callers must handle instead of assuming setting 0.
+ */
+fun UsbInterface.compatAlternateSetting(): Int? =
+    if (Build.VERSION.SDK_INT >= 21) alternateSetting else null
 
 /** Service-name lookup for the string-based getSystemService (API 1) used below API 23. */
 private fun systemServiceNameFor(cls: Class<*>): String? = when (cls.name) {

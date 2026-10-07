@@ -5,6 +5,7 @@ import android.hardware.usb.UsbDevice
 import android.hardware.usb.UsbConstants
 import android.hardware.usb.UsbEndpoint
 import android.hardware.usb.UsbInterface
+import com.shilapi.xcertplay.compatAlternateSetting
 
 /**
  * Finds the NCM control/data interface pair inside an active iPhone configuration.
@@ -41,7 +42,9 @@ object NcmFunctionDiscovery {
         } ?: return null
         val data = interfaces
             .filter { it.interfaceClass == DATA_CLASS && bulkEndpoints(it) != null }
-            .minByOrNull { if (it.alternateSetting == DATA_ALTERNATE_SETTING) 0 else 1 }
+            // Only data alternate setting 1 carries bulk endpoints, so on a unit that cannot report
+            // the setting the filter above has already selected it and this tie-break is a no-op.
+            .minByOrNull { if (it.compatAlternateSetting() == DATA_ALTERNATE_SETTING) 0 else 1 }
             ?: return null
         val endpoints = bulkEndpoints(data) ?: return null
         val statusIn = (0 until control.endpointCount)
