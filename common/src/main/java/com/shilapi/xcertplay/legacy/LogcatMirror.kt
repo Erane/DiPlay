@@ -17,6 +17,22 @@ import java.util.concurrent.ConcurrentLinkedQueue
 object LogcatMirror {
     @Volatile private var started = false
 
+    /** "-v time" lines: 09-04 20:37:02.876 I/tag(pid): ... */
+    private val lineRegex = Regex("^\\S+ [VDIWEF]/(\\S+)\\(")
+
+    /**
+     * The app's own lines by PID, plus the Bluetooth stack's (tags bt, bta, bluetooth and
+     * friends live in the com.android.bluetooth process) - on the T3 the stack accepts an
+     * RFCOMM connect in 2 ms without paging, and its own logcat tags are the only evidence
+     * of what it actually did.
+     */
+    private fun wanted(line: String, pidMarker: String): Boolean {
+        if (pidMarker in line) return true
+        val tag = lineRegex.find(line)?.groupValues?.get(1)?.lowercase() ?: return false
+        return tag.startsWith("bt") || tag.startsWith("bluetooth") ||
+            tag.startsWith("rfcomm") || tag.startsWith("hci")
+    }
+
     fun start(context: Context) {
         if (started) return
         started = true
@@ -54,7 +70,7 @@ object LogcatMirror {
                 val reader = BufferedReader(InputStreamReader(process.inputStream), 8192)
                 while (true) {
                     val line = reader.readLine() ?: break
-                    if (marker in line) pending.add(line)
+                    if (wanted(line, marker)) pending.add(line)
                 }
             }
         }, "diplay-logcat-mirror").apply { isDaemon = true; start() }

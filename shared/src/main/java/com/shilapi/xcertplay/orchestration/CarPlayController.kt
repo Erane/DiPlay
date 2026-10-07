@@ -1627,8 +1627,19 @@ class CarPlayController(
      * createBond() pops the pairing dialog on both sides and refreshes the link key. Some ROMs
      * lie the other way, so a failed or timed-out re-bond is logged and the run continues.
      */
+    private val bondRequestedAddresses = mutableSetOf<String>()
+
     private fun ensureBluetoothBond(device: BluetoothDevice, generation: Int) {
         if (device.bondState == BluetoothDevice.BOND_BONDED) return
+        synchronized(bondRequestedAddresses) {
+            if (!bondRequestedAddresses.add(device.address)) {
+                debugLog(
+                    "wireless Bluetooth bondState=${device.bondState} still disagrees; " +
+                        "pairing was already offered this run",
+                )
+                return
+            }
+        }
         debugLog(
             "wireless Bluetooth bondState=${device.bondState} disagrees with the bond list; " +
                 "requesting re-bond",
