@@ -1281,6 +1281,7 @@ class CarPlayController(
                     "isConnected=${isBluetoothDeviceConnected(device)}",
             )
             logBluetoothLinkTruth(device)
+            ensureBluetoothBond(device, generation)
             val channel = openReadyRfcommLink(device, generation)
             if (isStaleWirelessRun(generation)) {
                 return
@@ -1619,8 +1620,44 @@ class CarPlayController(
      * session exists. Each transport therefore gets its own connect/open/probe cycle, and its
      * byte-level outcome is reported before the next one is tried.
      */
+    /**
+     * The T3's stack lists the iPhone in bondedDevices while the device property reports
+     * BOND_NONE, and its RFCOMM connect() returns success without paging - a dead socket the
+     * iAP2 probe then times out on (48B out, 0B in). Re-bond when the property disagrees:
+     * createBond() pops the pairing dialog on both sides and refreshes the link key. Some ROMs
+     * lie the other way, so a failed or timed-out re-bond is logged and the run continues.
+     */
+    private fun ensureBluetoothBond(device: BluetoothDevice, generation: Int) {
+        if (device.bondState == BluetoothDevice.BOND_BONDED) return
+        debugLog(
+            "wireless Bluetooth bondState=${device.bondState} disagrees with the bond list; " +
+                "requesting re-bond",
+        )
+        onStatus(CarPlayStatus.Pairing)
+        val requested = runCatching { device.createBond() }.getOrDefault(false)
+        if (!requested) {
+            debugLog("wireless createBond not accepted by the stack; continuing without it")
+            return
+        }
+        val deadline = System.currentTimeMillis() + 35_000L
+        while (System.currentTimeMillis() < deadline) {
+            if (isStaleWirelessRun(generation)) return
+            if (device.bondState == BluetoothDevice.BOND_BONDED) {
+                debugLog("wireless Bluetooth re-bond completed")
+                return
+            }
+            try {
+                Thread.sleep(500)
+            } catch (_: InterruptedException) {
+                return
+            }
+        }
+        debugLog("wireless Bluetooth re-bond timed out; continuing (the stack may still lie)")
+    }
+
     private fun openReadyRfcommLink(device: BluetoothDevice, generation: Int): Iap2Session {
         val outcomes = ArrayList<String>()
+        var suspiciousFakeConnect = false
         for (strategy in rfcommTransports(device)) {
             val mode = strategy.mode
             if (isStaleWirelessRun(generation)) {
@@ -1638,14 +1675,17 @@ class CarPlayController(
             synchronized(wirelessResourceLock) { bluetoothSocket = socket }
             logBluetoothConnectionSnapshot(device, "before-connect")
             val connectStarted = System.nanoTime()
+            var connectElapsedMs = 0L
             try {
                 connectBluetoothSocket(socket, device.address)
+                connectElapsedMs = elapsedMillis(connectStarted)
                 connectionDiagnostic(
-                    "Bluetooth connect completed mode=$mode elapsedMs=${elapsedMillis(connectStarted)}",
+                    "Bluetooth connect completed mode=$mode elapsedMs=$connectElapsedMs",
                 )
             } catch (error: Throwable) {
+                connectElapsedMs = elapsedMillis(connectStarted)
                 connectionDiagnostic(
-                    "Bluetooth connect failed mode=$mode elapsedMs=${elapsedMillis(connectStarted)} " +
+                    "Bluetooth connect failed mode=$mode elapsedMs=$connectElapsedMs " +
                         "failureClass=${diagnosticFailureClass(error)}",
                 )
                 logBluetoothConnectionSnapshot(device, "after-failure")
@@ -1683,10 +1723,23 @@ class CarPlayController(
             }
             logRfcommByteEvidence("probe-timed-out")
             connectionDiagnostic("RFCOMM attempt mode=$mode result=no-iap2-response")
+            if (connectElapsedMs < 50) {
+                // A sub-50 ms connect() that never yields a byte is the T3 stack faking success
+                // without paging: there is no real link for iAP2 to live on.
+                suspiciousFakeConnect = true
+            }
             outcomes += "$mode=no-iap2-response"
             closeBluetoothBootstrapTransport()
         }
-        throw IOException("No RFCOMM transport produced a ready iAP2 link: ${outcomes.joinToString(" ")}")
+        val hint = if (suspiciousFakeConnect) {
+            " (the stack reported connect in <50 ms with zero bytes back - no real Bluetooth " +
+                "link; re-pair the iPhone with this unit in Bluetooth settings)"
+        } else {
+            ""
+        }
+        throw IOException(
+            "No RFCOMM transport produced a ready iAP2 link: ${outcomes.joinToString(" ")}$hint",
+        )
     }
 
     private class RfcommTransport(

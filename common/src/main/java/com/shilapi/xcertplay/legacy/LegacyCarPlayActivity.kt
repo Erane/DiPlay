@@ -623,18 +623,37 @@ class LegacyCarPlayActivity : Activity() {
             appendLog("蓝牙已关闭, 正在重新开启")
             setStatus("蓝牙已关闭, 正在重新开启…")
             runCatching { adapter.enable() }
-            mainHandler.postDelayed({ manualReconnect() }, 4000)
+            awaitBluetoothEnabled(adapter) { manualReconnect() }
             return
         }
-        // The msm8916 BT stack wedges sometimes; bounce the adapter to recover it.
+        // The msm8916/T3 BT stacks wedge sometimes; bounce the adapter to recover it.
         appendLog("手动重启蓝牙: 先关闭")
         setStatus("正在重启蓝牙…")
         runCatching { adapter.disable() }
         mainHandler.postDelayed({
             appendLog("手动重启蓝牙: 重新开启")
             runCatching { adapter.enable() }
-            mainHandler.postDelayed({ manualReconnect() }, 4000)
+            awaitBluetoothEnabled(adapter) { manualReconnect() }
         }, 2500)
+    }
+
+    /** The T3 re-enables Bluetooth in tens of seconds - poll instead of a fixed wait. */
+    private fun awaitBluetoothEnabled(
+        adapter: android.bluetooth.BluetoothAdapter,
+        attempt: Int = 0,
+        done: () -> Unit,
+    ) {
+        if (adapter.isEnabled) {
+            setStatus("蓝牙已就绪, 正在重连…")
+            done()
+            return
+        }
+        if (attempt >= 30) {
+            setStatus("蓝牙迟迟未开启, 请到系统设置检查")
+            appendLog("蓝牙重新开启超时")
+            return
+        }
+        mainHandler.postDelayed({ awaitBluetoothEnabled(adapter, attempt + 1, done) }, 1000)
     }
 
     private fun scheduleReconnect() {
