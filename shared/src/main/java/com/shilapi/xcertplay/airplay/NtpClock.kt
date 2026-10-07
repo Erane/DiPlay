@@ -1,5 +1,6 @@
 package com.shilapi.xcertplay.airplay
 
+import com.shilapi.xcertplay.listenerBindAddress
 import java.io.Closeable
 import java.math.BigInteger
 import java.net.DatagramPacket
@@ -35,11 +36,11 @@ class NtpClock : Closeable {
     private var pendingT1: BigInteger? = null
     private var synced = false
 
-    fun listen(): Int {
+    fun listen(localAddress: InetAddress?): Int {
         check(!running.getAndSet(true)) { "NtpClock is already running" }
         val bound = DatagramSocket(null)
         bound.reuseAddress = true
-        bound.bind(InetSocketAddress(InetAddress.getByName("::"), 0))
+        bound.bind(InetSocketAddress(listenerBindAddress(localAddress), 0))
         synchronized(socketLock) { socket = bound }
         receiver = Thread(::runReceiver, "airplay-ntp-rx").apply { isDaemon = true; start() }
         return bound.localPort

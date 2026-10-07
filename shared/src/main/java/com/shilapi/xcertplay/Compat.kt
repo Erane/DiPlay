@@ -4,6 +4,9 @@ import android.content.Context
 import android.hardware.usb.UsbInterface
 import android.os.Build
 import java.io.File
+import java.net.Inet4Address
+import java.net.Inet6Address
+import java.net.InetAddress
 
 /** getNoBackupFilesDir exists from API 21; older units fall back to the same on-disk path. */
 fun Context.compatNoBackupFilesDir(): File =
@@ -62,3 +65,16 @@ fun checkSelfPermissionCompat(context: Context, permission: String): Int =
         @Suppress("DEPRECATION")
         context.checkPermission(permission, android.os.Process.myPid(), android.os.Process.myUid())
     }
+
+/**
+ * Bind address for the session's local RTSP/UDP listeners. InetAddress.getByName("::") binds on
+ * modern libcore but Dalvik 4.x throws "Can't bind to a link-local address without a scope id",
+ * so listeners bind their own family - IPv4 wildcard for v4 sessions, the live (scoped) address
+ * for v6 - the same convention CarPlayMediaEngine and IapTunnel already apply.
+ */
+fun listenerBindAddress(local: InetAddress?, remote: InetAddress? = null): InetAddress = when {
+    local is Inet6Address -> local
+    local is Inet4Address -> InetAddress.getByName("0.0.0.0")
+    remote is Inet6Address && Build.VERSION.SDK_INT >= 21 -> InetAddress.getByName("::")
+    else -> InetAddress.getByName("0.0.0.0")
+}
