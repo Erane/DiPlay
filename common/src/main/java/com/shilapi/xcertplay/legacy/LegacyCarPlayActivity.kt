@@ -16,6 +16,7 @@ import android.view.Surface
 import android.view.SurfaceHolder
 import android.view.SurfaceView
 import android.view.ViewGroup
+import android.widget.Button
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -66,11 +67,13 @@ class LegacyCarPlayActivity : Activity() {
     private var sink: AndroidMediaSink? = null
     private var restartGeneration = 0
     private val shuttingDown = java.util.concurrent.atomic.AtomicBoolean(false)
+    @Volatile private var afterShutdown: (() -> Unit)? = null
     private var reconnectScheduled = false
     private var reconnectAttempts = 0
     private var sessionActive = false
     private var startPendingSurface = false
     private lateinit var statusView: TextView
+    private lateinit var btStatusView: TextView
     private lateinit var logView: TextView
     private lateinit var surfaceView: SurfaceView
     private var latestSurface: Surface? = null
@@ -86,6 +89,11 @@ class LegacyCarPlayActivity : Activity() {
             textSize = 15f
             setTextColor(Color.WHITE)
             setPadding(24, 12, 24, 4)
+        }
+        btStatusView = TextView(this).apply {
+            textSize = 12f
+            setTextColor(Color.rgb(255, 214, 120))
+            setPadding(24, 0, 24, 0)
         }
         logView = TextView(this).apply {
             textSize = 10f
@@ -115,10 +123,21 @@ class LegacyCarPlayActivity : Activity() {
         })
         surfaceView.setOnTouchListener { view, event -> onHostTouch(view, event) }
 
+        val controls = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            fun controlButton(label: String, action: () -> Unit) = Button(this@LegacyCarPlayActivity).apply {
+                text = label
+                setOnClickListener { action() }
+            }
+            addView(controlButton("重新连接") { manualReconnect() })
+            addView(controlButton("重启蓝牙") { bounceBluetooth() })
+        }
         val overlay = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(Color.argb(140, 0, 0, 0))
             addView(statusView)
+            addView(btStatusView)
+            addView(controls)
             addView(logView)
         }
         val root = FrameLayout(this).apply {
@@ -130,6 +149,12 @@ class LegacyCarPlayActivity : Activity() {
                 Gravity.BOTTOM))
         }
         setContentView(root)
+        mainHandler.post(object : Runnable {
+            override fun run() {
+                updateBtStatus()
+                mainHandler.postDelayed(this, 2000)
+            }
+        })
         runCatching {
             com.shilapi.xcertplay.legacy.LegacyDiagnostics.append(
                 this, com.shilapi.xcertplay.legacy.LegacyDiagnostics.LOG_FILE,
@@ -154,6 +179,17 @@ class LegacyCarPlayActivity : Activity() {
                 appendLog("VPN 授权被拒绝")
             }
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        // singleTask re-entry: tapping 无线 on the home screen while this instance is alive
+        // lands here. Treat it as an explicit reconnect request instead of ignoring it.
+        setIntent(intent)
+        reconnectAttempts = 0
+        appendLog("手动重连: 按主页请求重新启动会话")
+        setStatus("手动重连中…")
+        shutdown("manual-reconnect") { startSession() }
     }
 
     override fun onResume() {
@@ -569,10 +605,42 @@ class LegacyCarPlayActivity : Activity() {
         return true
     }
 
+    private fun manualReconnect() {
+        reconnectAttempts = 0
+        reconnectScheduled = false
+        appendLog("手动重连")
+        setStatus("手动重连中…")
+        shutdown("manual-reconnect") { startSession() }
+    }
+
+    private fun bounceBluetooth() {
+        val adapter = runCatching { android.bluetooth.BluetoothAdapter.getDefaultAdapter() }.getOrNull()
+        if (adapter == null) {
+            setStatus("本机没有蓝牙适配器")
+            return
+        }
+        if (!adapter.isEnabled) {
+            appendLog("蓝牙已关闭, 正在重新开启")
+            setStatus("蓝牙已关闭, 正在重新开启…")
+            runCatching { adapter.enable() }
+            mainHandler.postDelayed({ manualReconnect() }, 4000)
+            return
+        }
+        // The msm8916 BT stack wedges sometimes; bounce the adapter to recover it.
+        appendLog("手动重启蓝牙: 先关闭")
+        setStatus("正在重启蓝牙…")
+        runCatching { adapter.disable() }
+        mainHandler.postDelayed({
+            appendLog("手动重启蓝牙: 重新开启")
+            runCatching { adapter.enable() }
+            mainHandler.postDelayed({ manualReconnect() }, 4000)
+        }, 2500)
+    }
+
     private fun scheduleReconnect() {
         if (reconnectScheduled || shuttingDown.get()) return
         if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
-            setStatus("多次重连失败。请检查连接后从主页重试。")
+            setStatus("自动重连已暂停。点【重新连接】重试，蓝牙异常时先点【重启蓝牙】。")
             appendLog("重连次数用尽")
             return
         }
@@ -609,9 +677,13 @@ class LegacyCarPlayActivity : Activity() {
 
     private fun shutdown(reason: String, completion: () -> Unit) {
         if (!shuttingDown.compareAndSet(false, true)) {
-            completion()
+            // A teardown is already in flight: replace what it will do next. Never drop the
+            // request on the floor - that is how the activity used to become a zombie that
+            // only a process kill could revive.
+            afterShutdown = completion
             return
         }
+        afterShutdown = completion
         restartGeneration += 1
         val oldController = controller
         val oldSink = sink
@@ -626,8 +698,27 @@ class LegacyCarPlayActivity : Activity() {
             runCatching { oldController?.close() }
             runCatching { oldSink?.close() }
             applicationContext.stopService(Intent(applicationContext, DiPlaySessionService::class.java))
-            runOnUiThread { completion() }
+            runOnUiThread {
+                val next = afterShutdown
+                afterShutdown = null
+                shuttingDown.set(false)
+                next?.invoke()
+            }
         }.start()
+    }
+
+    private fun updateBtStatus() {
+        runOnUiThread {
+            if (!::btStatusView.isInitialized) return@runOnUiThread
+            val adapter = runCatching { android.bluetooth.BluetoothAdapter.getDefaultAdapter() }.getOrNull()
+            val state = when {
+                adapter == null -> "不可用"
+                adapter.isEnabled -> "开"
+                else -> "关 ⚠"
+            }
+            val bonded = runCatching { adapter?.bondedDevices?.size ?: 0 }.getOrDefault(0)
+            btStatusView.text = "蓝牙: $state | 已配对设备: $bonded"
+        }
     }
 
     private fun setStatus(text: String) {
@@ -664,7 +755,7 @@ class LegacyCarPlayActivity : Activity() {
         const val VPN_REQUEST = 4001
         const val MIC_REQUEST = 4002
         internal const val EXTRA_WIRELESS = "wireless"
-        private const val MAX_RECONNECT_ATTEMPTS = 5
+        private const val MAX_RECONNECT_ATTEMPTS = 50
         // CarPlayHostActivity's screen ids (110 main / 111 alt) - same wire values.
         const val SCREEN_TYPE_MAIN = 110
         const val SCREEN_TYPE_ALT = 111
