@@ -1260,7 +1260,7 @@ class CarPlayController(
                     bonjourClient.start()
                     debugLog(
                         "wireless Bonjour services started " +
-                            "mode=interface iface=${hotspotInfo.interfaceName ?: "unknown"}",
+                            "engine=${bonjourClient.mdnsEngine} iface=${hotspotInfo.interfaceName ?: "unknown"}",
                     )
                 } catch (error: Exception) {
                     // 4.x ROMs run an mdnsd that owns 5353 and refuses the JmDNS bind. The phone

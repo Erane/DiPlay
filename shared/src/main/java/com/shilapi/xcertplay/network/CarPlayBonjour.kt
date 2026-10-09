@@ -132,6 +132,34 @@ object CarPlayBonjourProtocol {
 }
 
 /**
+ * JmDNS 3.6 is Java 8 bytecode: it calls `Map.getOrDefault`, and D8 rewrites its lambdas into
+ * classes implementing `java.util.function.*`, none of which exist before API 24. On a Dalvik unit
+ * the publish therefore fails here *and* kills the process from JmDNS's own uncaught listener
+ * thread, so those units keep publishing through Android's NSD even when interface mDNS was asked
+ * for. NSD cannot carry TXT records below API 21, which the caller weighs elsewhere.
+ */
+internal fun mdnsEngineFor(useInterfaceMdns: Boolean, sdkInt: Int): String = when {
+    !useInterfaceMdns -> SYSTEM_NSD_ENGINE
+    sdkInt < MIN_JMDNS_SDK -> "$SYSTEM_NSD_ENGINE(${JMDNS_ENGINE}NeedsApi$MIN_JMDNS_SDK)"
+    else -> JMDNS_ENGINE
+}
+
+internal const val MIN_JMDNS_SDK = 24
+internal const val JMDNS_ENGINE = "jmDNS"
+internal const val SYSTEM_NSD_ENGINE = "systemNsd"
+
+/**
+ * Threads JmDNS creates and owns itself: it names its socket reader `SocketListener(<instance>)` and
+ * its timer `JmDNS(<instance>)`. A failure there belongs to the library rather than to the session,
+ * and on a unit that cannot even load the library's bytecode it would take the whole app down, so
+ * the process handler records it and lets the run continue.
+ */
+fun isMdnsOwnedThread(name: String?): Boolean =
+    name != null && MDNS_THREAD_PREFIXES.any { name.startsWith(it) }
+
+private val MDNS_THREAD_PREFIXES = listOf("SocketListener(", "JmDNS(")
+
+/**
  * Publishes the accessory AirPlay service and discovers the iPhone's CarPlay control service.
  *
  * The NSD callbacks only enqueue work. Resolution, probing, and [onEvent] all run on the worker
@@ -146,6 +174,9 @@ class CarPlayBonjour(
     private val onEvent: (CarPlayBonjourEvent) -> Unit = {},
     additionalAddresses: List<InetAddress> = emptyList(),
 ) : Closeable {
+    /** Which mDNS implementation this unit can run; see [mdnsEngineFor]. */
+    internal val mdnsEngine = mdnsEngineFor(useInterfaceMdns, Build.VERSION.SDK_INT)
+    internal val interfaceMdnsActive = mdnsEngine == JMDNS_ENGINE
     // Interface-bound mDNS does not need Android's NSD service, which may be absent on some head units.
     private val nsdManager: NsdManager by lazy {
         (context.applicationContext ?: context)
@@ -172,7 +203,7 @@ class CarPlayBonjour(
         "bonjourAdded=${addedCount.get()} bonjourResolved=${resolvedCount.get()} " +
             "bonjourAddressMismatch=${addressMismatchCount.get()} connectProbes=${probeCount.get()} " +
             "connectProbe2xx=${successfulProbeCount.get()} lastProbe=${lastProbe.get()} " +
-            "mdnsFamilies=$publishedFamilies"
+            "mdnsEngine=$mdnsEngine mdnsFamilies=$publishedFamilies"
     private val multicastLock = systemServiceCompat(context.applicationContext ?: context, WifiManager::class.java)
         ?.createMulticastLock("carplay-bonjour")?.apply { setReferenceCounted(false) }
 
@@ -276,7 +307,7 @@ class CarPlayBonjour(
             started = true
             try {
                 multicastLock?.acquire()
-                if (useInterfaceMdns) {
+                if (interfaceMdnsActive) {
                     requireNotNull(localAdvertisedAddress) {
                         "Interface mDNS requires a local advertised address"
                     }
@@ -294,6 +325,10 @@ class CarPlayBonjour(
                         if (it is Inet4Address) "IPv4" else "IPv6"
                     }
                 } else {
+                    if (useInterfaceMdns) {
+                        // The caller asked for interface mDNS and the platform cannot run that library.
+                        Log.w(TAG, "mDNS engine downgraded engine=$mdnsEngine sdk=${Build.VERSION.SDK_INT}")
+                    }
                     registerAirPlay()
                     registrationRequested = true
                     nsdManager.discoverServices(
@@ -370,8 +405,10 @@ class CarPlayBonjour(
                 CarPlayBonjourProtocol.airPlayTxtRecords(config, identity).forEach { (key, value) ->
                     setAttribute(key, value)
                 }
+                // setHost(InetAddress) is API 21 too, and pre-21 NSD advertises the address it
+                // picked itself.
+                localAdvertisedAddress?.let(::setHost)
             }
-            localAdvertisedAddress?.let(::setHost)
         }
         nsdManager.registerService(
             serviceInfo,
@@ -398,7 +435,7 @@ class CarPlayBonjour(
 
     private fun runWorker() {
         while (!closed) {
-            if (useInterfaceMdns) {
+            if (interfaceMdnsActive) {
                 try {
                     while (true) emit(discoveryEvents.poll() ?: break)
                     val (endpoint, address) = interfaceServices.poll(

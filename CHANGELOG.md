@@ -17,6 +17,7 @@ Add changes after 0.2.12 here.
 - compat-4.4: name the message IDs the iPhone called unsupported inside a rejected iAP2 identification, bounded to 32 per direction with empty, malformed and omitted payloads counted separately, because a bare parameter list could not say which advertised message the phone objected to.
 - compat-4.4: put CarPlay calls on the cabin speaker and capture the microphone raw when the unit's Bluetooth phone audio does not work, behind a switch that defaults to off, because the communication mode moved the call to an SCO path these units never had.
 - compat-4.4: report a car ROM that has no VPN consent screen as a plain-language failure on both interfaces instead of a dead session, and ignore a consent result that arrives after its launch already failed, so a missing dialog cannot authorize a tunnel or restart the session twice.
+- compat-4.4: stop publishing mDNS through JmDNS below API 24, because JmDNS 3.6 calls `Map.getOrDefault` and its D8 lambdas implement `java.util.function.*` so a Dalvik unit dies on the library's own socket thread the moment a wireless run starts — those units publish through system NSD instead, the chosen engine is named in every report, and an uncaught error on a thread JmDNS owns is now recorded instead of handed to the platform.
 
 # DiPlay 0.2.12 — 2026-10-04
 
