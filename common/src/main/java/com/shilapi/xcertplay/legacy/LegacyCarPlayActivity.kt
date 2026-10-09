@@ -2,6 +2,7 @@ package com.shilapi.xcertplay.legacy
 
 import android.Manifest
 import android.app.Activity
+import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color
@@ -73,6 +74,7 @@ class LegacyCarPlayActivity : Activity() {
     private var reconnectAttempts = 0
     private var sessionActive = false
     private var startPendingSurface = false
+    private var awaitingVpnConsent = false
     private lateinit var statusView: TextView
     private lateinit var btStatusView: TextView
     private lateinit var logView: TextView
@@ -178,6 +180,10 @@ class LegacyCarPlayActivity : Activity() {
             appendLog(if (resultCode == RESULT_OK) "麦克风权限授予" else "麦克风权限被拒（通话不可用）")
         }
         if (requestCode == VPN_REQUEST) {
+            // A launch that failed has already reported itself and cleared the pending flag, so a
+            // stray result must not start a second session on top of that attempt.
+            if (!awaitingVpnConsent) return
+            awaitingVpnConsent = false
             if (resultCode == RESULT_OK) {
                 appendLog("VPN 授权成功")
                 startSession()
@@ -295,6 +301,20 @@ class LegacyCarPlayActivity : Activity() {
         Build.VERSION.SDK_INT < 23 ||
             checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
 
+    /**
+     * Several car ROMs ship no VPN consent activity. Naming that failure on screen keeps it apart
+     * from a session crash, which the top-level handler would otherwise report as 启动失败.
+     */
+    private fun onVpnConsentUnavailable(consent: Intent, error: RuntimeException) {
+        awaitingVpnConsent = false
+        Log.w(TAG, "VPN consent activity unavailable", error)
+        appendLog(
+            "VPN 授权界面无法打开 failureClass=${error.javaClass.simpleName} " +
+                "component=${consent.component?.flattenToString() ?: "none"}",
+        )
+        setStatus("车机无法打开 VPN 授权界面：请在车机设置中允许 DiPlay 建立 VPN 连接，或改用无线连接")
+    }
+
     private fun startSession() {
         try {
             startSessionInternal()
@@ -324,7 +344,16 @@ class LegacyCarPlayActivity : Activity() {
             }
             if (consent != null) {
                 setStatus("请在弹窗中允许 VPN 连接（CarPlay 网络需要）")
-                startActivityForResult(consent, VPN_REQUEST)
+                awaitingVpnConsent = true
+                try {
+                    startActivityForResult(consent, VPN_REQUEST)
+                } catch (error: ActivityNotFoundException) {
+                    onVpnConsentUnavailable(consent, error)
+                    return
+                } catch (error: SecurityException) {
+                    onVpnConsentUnavailable(consent, error)
+                    return
+                }
                 return
             }
         }
@@ -354,6 +383,7 @@ class LegacyCarPlayActivity : Activity() {
             advancedAudioChannelMapping = false,
             audioFocusEnabled = AirPlayPersistence.loadAudioFocusEnabled(this),
             navigationDuckEnabled = AirPlayPersistence.loadNavigationDuckEnabled(this),
+            callOnCabinSpeaker = AirPlayPersistence.loadCallOnCabinSpeaker(this),
             mediaChannel = AirPlayPersistence.loadMediaAudioChannel(this),
             navigationChannel = AirPlayPersistence.loadNavigationAudioChannel(this),
             context = this,

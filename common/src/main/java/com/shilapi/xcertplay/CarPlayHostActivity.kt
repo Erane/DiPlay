@@ -1,6 +1,7 @@
 package com.shilapi.xcertplay
 
 import android.Manifest
+import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -177,13 +178,7 @@ class CarPlayHostActivity : ComponentActivity() {
 
     private val vpnConsent =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-            awaitingVpnConsent = false
-            if (result.resultCode == RESULT_OK) {
-                vpnReady = true
-                maybeStartCarPlay()
-            } else {
-                setStatus(getString(R.string.vpn_consent_was_denied))
-            }
+            onVpnConsentResult(result.resultCode)
         }
     private val wirelessPermissions =
         registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
@@ -643,6 +638,9 @@ class CarPlayHostActivity : ComponentActivity() {
             PackageManager.PERMISSION_GRANTED
 
     private fun requestVpnConsent() {
+        if (awaitingVpnConsent) return
+        // CarPlayVpnService.prepare already contains a ROM that cannot answer the question, so the
+        // failure left here is the consent *screen*: several head units ship no VPN dialog at all.
         val consent = CarPlayVpnService.prepare(this)
         CarPlayVpnService.prepareError?.let { error ->
             appendLog("VPN 授权检查不可用(${error.javaClass.simpleName})，由 establish 判定权限")
@@ -650,10 +648,40 @@ class CarPlayHostActivity : ComponentActivity() {
         if (consent == null) {
             vpnReady = true
             maybeStartCarPlay()
-        } else {
-            awaitingVpnConsent = true
-            vpnConsent.launch(consent)
+            return
         }
+        vpnReady = false
+        awaitingVpnConsent = true
+        try {
+            vpnConsent.launch(consent)
+        } catch (error: ActivityNotFoundException) {
+            onVpnConsentUnavailable("launch", consent, error)
+        } catch (error: SecurityException) {
+            onVpnConsentUnavailable("launch", consent, error)
+        }
+    }
+
+    private fun onVpnConsentResult(resultCode: Int) {
+        // A failed launch clears the pending state; a late result must not authorize that attempt.
+        if (!awaitingVpnConsent) return
+        awaitingVpnConsent = false
+        vpnReady = resultCode == RESULT_OK
+        if (vpnReady) {
+            maybeStartCarPlay()
+        } else {
+            setStatus(getString(R.string.vpn_consent_was_denied))
+        }
+    }
+
+    private fun onVpnConsentUnavailable(operation: String, consent: Intent?, error: RuntimeException) {
+        awaitingVpnConsent = false
+        vpnReady = false
+        val diagnostic = "VPN consent unavailable operation=$operation " +
+            "failureClass=${error.javaClass.simpleName} " +
+            "component=${consent?.component?.flattenToString() ?: "none"}"
+        Log.w(TAG, diagnostic, error)
+        appendLog(diagnostic)
+        setStatus(getString(R.string.vpn_authorization_unavailable))
     }
 
     private fun requestWirelessPermissions() {
@@ -3571,6 +3599,7 @@ class CarPlayHostActivity : ComponentActivity() {
             advancedAudioChannelMapping = advancedAudioChannelMapping,
             audioFocusEnabled = AirPlayPersistence.loadAudioFocusEnabled(this),
             navigationDuckEnabled = AirPlayPersistence.loadNavigationDuckEnabled(this),
+            callOnCabinSpeaker = AirPlayPersistence.loadCallOnCabinSpeaker(this),
             mediaChannel = AirPlayPersistence.loadMediaAudioChannel(this),
             navigationChannel = AirPlayPersistence.loadNavigationAudioChannel(this),
             context = this,
@@ -4445,6 +4474,7 @@ class CarPlayHostActivity : ComponentActivity() {
     }
 
     private fun friendlyStage(message: String): String = when {
+        message == getString(R.string.vpn_authorization_unavailable) -> message
         message == getString(R.string.waiting_for_mfi_coprocessor) ||
             message == getString(R.string.requesting_mfi_usb_permission) -> message
         message.contains("Turn on Wi-Fi", true) -> getString(R.string.turn_on_wi_fi_in_the_head_unit_s_settings_to_connect)
