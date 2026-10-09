@@ -44,11 +44,12 @@ internal class AudioFocusCoordinator(
     private val enabled: Boolean,
     private val report: (String) -> Unit = {},
 ) {
-    private data class Entry(val channel: AudioChannel, val attributes: AudioAttributes?)
+    private data class Entry(val channel: AudioChannel, val attributes: Any?)
 
     private val manager = context?.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
     private val active = LinkedHashMap<AudioTrack, Entry>()
-    private var request: AudioFocusRequest? = null
+    // Any?: AudioFocusRequest is API 26, and this field is read on every Android version.
+    private var request: Any? = null
     private var legacyStream: Int? = null
     private var requestedChannel: AudioChannel? = null
     private val listener = AudioManager.OnAudioFocusChangeListener { change ->
@@ -64,7 +65,7 @@ internal class AudioFocusCoordinator(
     }
 
     @Synchronized
-    fun acquire(track: AudioTrack, channel: AudioChannel, attributes: AudioAttributes?) {
+    fun acquire(track: AudioTrack, channel: AudioChannel, attributes: Any?) {
         if (!enabled || manager == null || channel == AudioChannel.NAVIGATION) return
         active[track] = Entry(channel, attributes)
         refreshRequest()
@@ -95,10 +96,13 @@ internal class AudioFocusCoordinator(
         val result = if (Build.VERSION.SDK_INT >= 26) {
             val next = AudioFocusRequest.Builder(gain)
                 .setAudioAttributes(
-                    primary.attributes ?: AudioAttributes.Builder()
-                        .setUsage(AudioAttributes.USAGE_MEDIA)
-                        .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
-                        .build(),
+                    // The cast runs only here: Android 5.x has no AudioAttributes class, and
+                    // Dalvik would resolve the operand of a check-cast before skipping a null value.
+                    (primary.attributes as AudioAttributes?)
+                        ?: AudioAttributes.Builder()
+                            .setUsage(AudioAttributes.USAGE_MEDIA)
+                            .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                            .build(),
                 )
                 .setOnAudioFocusChangeListener(listener, Handler(Looper.getMainLooper()))
                 .build()
@@ -118,7 +122,9 @@ internal class AudioFocusCoordinator(
     // request is only built on API 26+, so on older units this never touches the new API.
     @Suppress("DEPRECATION", "NewApi")
     private fun abandonHeld() {
-        request?.let { manager?.abandonAudioFocusRequest(it) }
+        if (Build.VERSION.SDK_INT >= 26) {
+            (request as AudioFocusRequest?)?.let { manager?.abandonAudioFocusRequest(it) }
+        }
         request = null
         if (legacyStream != null) manager?.abandonAudioFocus(listener)
         legacyStream = null
@@ -163,6 +169,8 @@ class AndroidMediaSink(
     private val preferSoftwareHevcDecoder: Boolean = false,
     private val advancedAudioChannelMapping: Boolean = false,
     private val audioFocusEnabled: Boolean = false,
+    /** Lower music while navigation guidance is audible; navigation claims no focus, so this ducks by hand. */
+    private val navigationDuckEnabled: Boolean = true,
     private val mediaChannel: Int = 0,
     private val navigationChannel: Int = 0,
     context: Context? = null,
@@ -188,6 +196,9 @@ class AndroidMediaSink(
     private val videoDecoders = ConcurrentHashMap<Int, VideoDecoder>()
     private val mediaAudioTypes = mutableSetOf<AudioStreamId>()
     private val audioRenderers = ConcurrentHashMap<AudioStreamId, AudioRenderer>()
+    private val duckLock = Any()
+    private val speakingNavigationStreams = mutableSetOf<AudioStreamId>()
+    private var musicDucked = false
     private val microphoneUplinks = ConcurrentHashMap<AudioStreamId, MicrophoneUplink>()
     private val audioModeLock = Any()
     private var communicationModeStream: AudioStreamId? = null
@@ -308,6 +319,7 @@ class AndroidMediaSink(
 
     override fun onAudioStopped(id: AudioStreamId) {
         audioRenderers.remove(id)?.close()
+        onNavigationAudioActive(id, false)
         updateMediaAudio(id, false)
     }
 
@@ -390,6 +402,10 @@ class AndroidMediaSink(
         recoveryExecutor.shutdownNow()
         audioRenderers.values.forEach(AudioRenderer::close)
         audioRenderers.clear()
+        synchronized(duckLock) {
+            speakingNavigationStreams.clear()
+            musicDucked = false
+        }
         val hadMedia = synchronized(mediaAudioTypes) { mediaAudioTypes.isNotEmpty().also { mediaAudioTypes.clear() } }
         if (hadMedia) onMediaAudioChanged(false)
         try {
@@ -419,6 +435,14 @@ class AndroidMediaSink(
         val existing = audioRenderers[id]
         if (existing?.format == format) return existing
         existing?.close()
+        // The replacement starts with no audio in flight, so the old renderer's activity is over.
+        onNavigationAudioActive(id, false)
+        val duckedAt = synchronized(duckLock) { musicDucked }
+        // null disables the reporting work in the renderer: nothing consumes it when ducking is off.
+        val activityReports: ((AudioRenderer, Boolean) -> Unit)? = if (navigationDuckEnabled) { renderer, active ->
+            // A replaced renderer must not overwrite the state its replacement just reported.
+            if (audioRenderers[id] === renderer) onNavigationAudioActive(id, active)
+        } else null
         return AudioRenderer(
             format,
             advancedAudioChannelMapping,
@@ -429,7 +453,39 @@ class AndroidMediaSink(
             navigationStreamType,
             mediaBufferMillis,
             onAudioDiagnostic,
-        ).also { audioRenderers[id] = it }
+            activityReports,
+        ).also {
+            it.setDucked(duckedAt)
+            audioRenderers[id] = it
+        }
+    }
+
+    /**
+     * Tracks which navigation streams currently have audible audio, so the music track can be
+     * lowered for the duration. The iPhone gives guidance its own stream and expects media to keep
+     * running underneath, which audio focus alone cannot express on these head units.
+     */
+    private fun onNavigationAudioActive(id: AudioStreamId, active: Boolean) {
+        if (!navigationDuckEnabled) return
+        val ducked = synchronized(duckLock) {
+            if (active) speakingNavigationStreams.add(id) else speakingNavigationStreams.remove(id)
+            val target = speakingNavigationStreams.isNotEmpty()
+            if (target == musicDucked) {
+                null
+            } else {
+                musicDucked = target
+                audioRenderers.values.forEach { renderer -> renderer.setDucked(target) }
+                target
+            }
+        }
+        ducked?.let { target ->
+            // Runs outside the lock: the diagnostic handler can reach the UI thread.
+            runCatching {
+                onAudioDiagnostic(
+                    "Audio: navigation ducking music=${if (target) "lowered" else "restored"} stream=$id",
+                )
+            }
+        }
     }
 }
 
@@ -821,24 +877,39 @@ private class AudioRenderer(
     private val navigationStreamType: Int,
     private val mediaBufferMillis: Int,
     private val report: (String) -> Unit,
+    /** Receives audible transitions from navigation guidance; null when ducking is off. */
+    private val onNavigationActive: ((AudioRenderer, Boolean) -> Unit)? = null,
 ) : Closeable {
     private data class AudioPacket(val rtp: ByteArray, val sample: Int)
 
-    private var trackAttributes: AudioAttributes? = null
+    // Any?, not AudioAttributes: Dalvik emits a check-cast for the merged value of an API-21-typed
+    // expression and resolves that operand before the null shortcut, so a typed store here would
+    // raise NoClassDefFoundError on 4.x even when the value is null.
+    private var trackAttributes: Any? = null
+    private var trackUsage: Int = -1
+    private var trackContentType: Int = -1
     private var mappedChannel: AudioChannel? = null
     private val queue = LinkedBlockingQueue<AudioPacket>(MAX_QUEUED_PACKETS)
     @Volatile private var running = true
     @Volatile private var started = false
     private var codec: MediaCodec? = null
+    private var softwareOpus: SoftwareOpusDecoder? = null
+    private var softwareOpusPackets = 0
     private var track: AudioTrack? = null
     private var pcm = ByteArray(64 * 1024)
     private var playbackStarted = false
     private var prebufferBytes = 0
     private var startThresholdBytes = 0
     private var fadeApplied = false
+    // Written from the sink's threads, read by this renderer's own loop, which applies the volume.
+    @Volatile private var ducked = false
+    private var appliedVolume = FULL_VOLUME
+    private var navigationAudible = false
+    private var lastSoundWriteNs = 0L
     private var droppedPacketsLogged = false
     private var firstAacPayloadLogged = false
     private var firstOpusShortPacketLogged = false
+    private var firstOpusSoftwareLogged = false
     private var firstInputQueuedLogged = false
     private var inputQueued = 0
     private var inputDropped = 0
@@ -906,15 +977,21 @@ private class AudioRenderer(
         thread.interrupt()
     }
 
+    /** Lowers or restores this track's volume; this renderer's own loop applies it. */
+    fun setDucked(value: Boolean) {
+        ducked = value
+    }
+
     private fun run() {
         try {
             runCatching { report("Audio: starting api=${Build.VERSION.SDK_INT} " +
                 "audioType=${format.audioType} codec=${format.codec} rate=${format.sampleRate} channels=${format.channels} " +
                 "mapping=${if (advancedAudioChannelMapping) "automotive" else "mobile"} " +
-                "mediaChannel=$mediaChannel navigationChannel=$navigationChannel focus=$audioFocusEnabled") }
+                "mediaChannel=$mediaChannel navigationChannel=$navigationChannel focus=$audioFocusEnabled " +
+                "duck=${onNavigationActive != null}") }
             when (format.codec) {
                 AudioCodecKind.AAC_LC -> configureCodec(MediaFormat.MIMETYPE_AUDIO_AAC)
-                AudioCodecKind.OPUS -> configureCodec(MediaFormat.MIMETYPE_AUDIO_OPUS)
+                AudioCodecKind.OPUS -> startOpusDecoder()
                 AudioCodecKind.LPCM -> Unit
             }
             createTrack()
@@ -929,6 +1006,10 @@ private class AudioRenderer(
                 codec?.let(::drainCodec)
                 diagnosticStage = "buffer-maintenance"
                 maintainPlaybackBuffer()
+                diagnosticStage = "volume"
+                applyDuckedVolume()
+                diagnosticStage = "navigation-activity"
+                reportNavigationActivity()
                 diagnosticStage = "stats"
                 logStatsIfDue()
             }
@@ -940,9 +1021,11 @@ private class AudioRenderer(
                 reportFailure(error)
             }
         } catch (error: LinkageError) {
-            // Record an unsupported platform API without changing the existing crash semantics.
+            // A platform class this ROM does not provide. Rethrowing would end the process, which
+            // drops the CarPlay session and makes the iPhone relaunch its media app into the same
+            // crash; losing audio is the bounded failure here.
+            Log.e(TAG, "audio renderer stopped: unsupported platform API stage=$diagnosticStage", error)
             if (running) reportFailure(error)
-            throw error
         } finally {
             runCatching { logStatsIfDue(force = true) }
             release()
@@ -993,6 +1076,38 @@ private class AudioRenderer(
         }
     }
 
+    /**
+     * Opus arrives on the navigation and alert streams. The platform decoder only exists from
+     * Android 5.0, so below that the software decoder is used straight away - asking MediaCodec
+     * first would only log a failure that is expected on this API level. On newer units the hardware
+     * path stays primary and software covers vendors that simply ship no Opus decoder.
+     */
+    private fun startOpusDecoder() {
+        if (Build.VERSION.SDK_INT >= 21) {
+            configureCodec(MediaFormat.MIMETYPE_AUDIO_OPUS)
+            if (codec != null) return
+        }
+        val decoder = try {
+            SoftwareOpusDecoder(format.sampleRate, format.channels)
+        } catch (error: Exception) {
+            Log.e(TAG, "software Opus decoder unavailable", error)
+            reportFailure(error)
+            null
+        }
+        softwareOpus = decoder
+        if (decoder != null) {
+            Log.i(
+                TAG,
+                "audio Opus software decoder active rate=${format.sampleRate} " +
+                    "channels=${format.channels}",
+            )
+            report(
+                "Audio: software Opus decoder ready audioType=${format.audioType} " +
+                    "rate=${format.sampleRate} channels=${format.channels}",
+            )
+        }
+    }
+
     private fun createTrack() {
         diagnosticStage = "track-buffer-size"
         val encoding = AndroidAudioFormat.ENCODING_PCM_16BIT
@@ -1010,9 +1125,10 @@ private class AudioRenderer(
         mappedChannel = selection.channel
         val streamOverride = channelOverride(selection.channel)
         // AudioAttributes is API 21: on 4.3/4.4 the legacy stream-type track carries no
-        // attributes and the focus path uses the stream-based API instead.
-        var attributes: AudioAttributes? =
-            if (Build.VERSION.SDK_INT >= 21) audioAttributesFor(selection, streamOverride) else null
+        // attributes and the focus path uses the stream-based API instead. An untyped local is
+        // required here too — see the trackAttributes field.
+        var attributes: Any? = null
+        if (Build.VERSION.SDK_INT >= 21) attributes = audioAttributesFor(selection, streamOverride)
         trackAttributes = attributes
         val plan = MediaAudioBuffer.plan(selection.channel == AudioChannel.MEDIA,
             format.sampleRate, format.channels, minBuffer, mediaBufferMillis)
@@ -1021,10 +1137,11 @@ private class AudioRenderer(
         var routeLabel: String
         diagnosticStage = "track-build"
         if (Build.VERSION.SDK_INT >= 23 && streamOverride == 0) {
-            attributes = audioAttributesFor(selection)
+            val usageAttributes = audioAttributesFor(selection)
+            attributes = usageAttributes
             routeLabel = "usage"
             built = AudioTrack.Builder()
-                .setAudioAttributes(attributes!!)
+                .setAudioAttributes(usageAttributes)
                 .setAudioFormat(pcmFormat(encoding, channelMask))
                 .setTransferMode(AudioTrack.MODE_STREAM)
                 .setBufferSizeInBytes(plan.trackBufferBytes)
@@ -1043,9 +1160,10 @@ private class AudioRenderer(
                     diagnosticStage = "track-fallback-build"
                     routeLabel = "streamType=$streamType(fallback=usage)"
                     Log.w(TAG, "streamType=$streamType rejected by this ROM; falling back to usage-based track")
-                    attributes = audioAttributesFor(selection)
+                    val fallbackAttributes = audioAttributesFor(selection)
+                    attributes = fallbackAttributes
                     AudioTrack.Builder()
-                        .setAudioAttributes(attributes!!)
+                        .setAudioAttributes(fallbackAttributes)
                         .setAudioFormat(pcmFormat(encoding, channelMask))
                         .setTransferMode(AudioTrack.MODE_STREAM)
                         .setBufferSizeInBytes(plan.trackBufferBytes)
@@ -1061,10 +1179,11 @@ private class AudioRenderer(
         }
         track = built
         diagnosticStage = "track-attributes"
-        trackAttributes = if (Build.VERSION.SDK_INT >= 21) {
-            audioTrackAttributesForFocus(built, attributes!!)
-        } else {
-            null
+        if (Build.VERSION.SDK_INT >= 21) {
+            val resolved = audioTrackAttributesForFocus(built, attributes as AudioAttributes)
+            trackAttributes = resolved
+            trackUsage = resolved.usage
+            trackContentType = resolved.contentType
         }
         diagnosticStage = "track-capacity"
         // getBufferSizeInFrames is API 23; pre-23 the capacity is the requested buffer size.
@@ -1073,7 +1192,7 @@ private class AudioRenderer(
         startThresholdBytes = MediaAudioBuffer.startBytesFor(plan.startBytes, capacityBytes, PREBUFFER_WRITE_CHUNK_BYTES)
         val trackMetadata = runCatching {
             "api=${Build.VERSION.SDK_INT} trackState=${built.state} trackRate=${built.sampleRate} " +
-                "usage=${trackAttributes?.usage} contentType=${trackAttributes?.contentType} " +
+                "usage=$trackUsage contentType=$trackContentType " +
                 "attributesSource=${if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) "track" else "configured"}"
         }.getOrDefault("api=${Build.VERSION.SDK_INT} trackMetadata=unavailable")
         report("Audio: ready audioType=${format.audioType} codec=${format.codec} " +
@@ -1265,7 +1384,22 @@ private class AudioRenderer(
                     }
                     return
                 }
-                feedCodec(accessUnit, timestampUs)
+                val software = softwareOpus
+                if (software == null) {
+                    feedCodec(accessUnit, timestampUs)
+                } else {
+                    val bytes = software.decode(accessUnit)
+                    if (bytes <= 0) {
+                        decoderUnavailablePackets++
+                    } else {
+                        softwareOpusPackets++
+                        if (!firstOpusSoftwareLogged) {
+                            firstOpusSoftwareLogged = true
+                            Log.i(TAG, "audio Opus software decoded bytes=$bytes")
+                        }
+                        writePcm(software.pcm, 0, bytes)
+                    }
+                }
             }
         }
     }
@@ -1375,6 +1509,10 @@ private class AudioRenderer(
             applyFadeIn(data, offset, length)
             fadeApplied = true
         }
+        if (onNavigationActive != null && mappedChannel == AudioChannel.NAVIGATION &&
+            hasAudibleContent(data, offset, length)) {
+            lastSoundWriteNs = System.nanoTime()
+        }
         var written = 0
         while (written < length && running) {
             val writeLength = if (playbackStarted) {
@@ -1442,6 +1580,34 @@ private class AudioRenderer(
         }
     }
 
+    /**
+     * Whether guidance is still being heard. Judged from the PCM written rather than from packet
+     * arrival: the iPhone can hold a guidance stream open with silent frames, which on packet count
+     * alone would keep the music lowered for the whole session.
+     */
+    private fun reportNavigationActivity() {
+        val listener = onNavigationActive ?: return
+        if (mappedChannel != AudioChannel.NAVIGATION) return
+        val audible = lastSoundWriteNs != 0L &&
+            System.nanoTime() - lastSoundWriteNs < NAVIGATION_HOLD_NS
+        if (audible == navigationAudible) return
+        navigationAudible = audible
+        runCatching { listener(this, audible) }
+    }
+
+    private fun applyDuckedVolume() {
+        if (mappedChannel != AudioChannel.MEDIA) return
+        val target = if (ducked) NAVIGATION_DUCK_VOLUME else FULL_VOLUME
+        if (target == appliedVolume) return
+        val current = track ?: return
+        appliedVolume = target
+        // setStereoVolume is the only volume call available before API 21, and the deprecated form
+        // still works there, so one path covers every unit.
+        if (runCatching { current.setStereoVolume(target, target) }.isFailure) {
+            Log.w(TAG, "audio volume change rejected target=$target")
+        }
+    }
+
     // Persist counters even during packet starvation, and flush before disconnect releases the track.
     private fun logStatsIfDue(force: Boolean = false) {
         val now = System.nanoTime()
@@ -1480,6 +1646,8 @@ private class AudioRenderer(
             val decoderLine = "Audio: decoder stats audioType=${format.audioType} codec=${format.codec} " +
                 "inputQueuedTotal=$inputQueued inputDroppedTotal=$inputDropped " +
                 "shortOpusPacketsTotal=$shortOpusPackets decoderUnavailablePacketsTotal=$decoderUnavailablePackets " +
+                "softwareDecodedTotal=$softwareOpusPackets " +
+                "softwareFailuresTotal=${softwareOpus?.failures ?: 0} " +
                 "outputBuffersTotal=$outputBuffers ended=$force"
             Log.i(STATS_TAG, decoderLine)
             runCatching { report(decoderLine) }
@@ -1498,6 +1666,20 @@ private class AudioRenderer(
         runCatching { report("Audio: renderer failed api=${Build.VERSION.SDK_INT} " +
             "audioType=${format.audioType} codec=${format.codec} stage=$diagnosticStage " +
             MediaFailureSummary.describe(error)) }
+    }
+
+    /** True when the s16 chunk carries sound rather than comfort noise; byte order does not matter. */
+    private fun hasAudibleContent(data: ByteArray, offset: Int, length: Int): Boolean {
+        var index = offset
+        val end = offset + length - 1
+        while (index < end) {
+            val unsigned = ((data[index + 1].toInt() and 0xff) shl 8) or (data[index].toInt() and 0xff)
+            val sample = if (unsigned >= 0x8000) unsigned - 0x10000 else unsigned
+            val magnitude = if (sample < 0) -sample else sample
+            if (magnitude > NAVIGATION_SILENCE_PEAK) return true
+            index += 2
+        }
+        return false
     }
 
     private fun applyFadeIn(data: ByteArray, offset: Int, length: Int) {
@@ -1568,6 +1750,12 @@ private class AudioRenderer(
         const val INPUT_TIMEOUT_US = 10_000L
         const val AUDIO_POLL_MILLIS = 10L
         const val BUFFER_TAIL_WAIT_NS = 500_000_000L
+        // Bridges the pauses between sentences of one announcement and the sound still in the track.
+        const val NAVIGATION_HOLD_NS = 800_000_000L
+        /** About -36 dBFS: above Opus comfort noise, below anything a driver needs to hear over music. */
+        const val NAVIGATION_SILENCE_PEAK = 512
+        const val FULL_VOLUME = 1f
+        const val NAVIGATION_DUCK_VOLUME = 0.2f
         // Holds a burst after a Wi-Fi gap (~4 s of AAC) instead of dropping it.
         const val MAX_QUEUED_PACKETS = 192
         const val PREBUFFER_WRITE_CHUNK_BYTES = 2 * 1024
