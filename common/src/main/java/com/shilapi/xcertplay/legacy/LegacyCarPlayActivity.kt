@@ -81,6 +81,7 @@ class LegacyCarPlayActivity : Activity() {
     private lateinit var debugToggleButton: Button
     private var debugOverlayVisible = true
     private lateinit var surfaceView: SurfaceView
+    private lateinit var videoFrame: FrameLayout
     private var latestSurface: Surface? = null
     private var videoWidth = 0
     private var videoHeight = 0
@@ -120,7 +121,9 @@ class LegacyCarPlayActivity : Activity() {
                 }
             }
 
-            override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) = Unit
+            override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
+                applyVideoLayout()
+            }
 
             override fun surfaceDestroyed(holder: SurfaceHolder) {
                 latestSurface = null
@@ -155,11 +158,13 @@ class LegacyCarPlayActivity : Activity() {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT,
                 Gravity.BOTTOM))
         }
+        videoFrame = root
         setContentView(root)
         debugOverlayVisible = AirPlayPersistence.loadLegacyDebugOverlayVisible(this)
         applyDebugOverlayVisibility()
         mainHandler.post(object : Runnable {
             override fun run() {
+                applyVideoLayout()
                 updateBtStatus()
                 mainHandler.postDelayed(this, 2000)
             }
@@ -203,6 +208,13 @@ class LegacyCarPlayActivity : Activity() {
         appendLog("手动重连: 按主页请求重新启动会话")
         setStatus("手动重连中…")
         shutdown("manual-reconnect") { startSession() }
+    }
+
+    override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
+        super.onConfigurationChanged(newConfig)
+        // This activity declares orientation|screenSize in configChanges, so a rotation is
+        // delivered here rather than recreating the host mid-session.
+        videoFrame.post { applyVideoLayout() }
     }
 
     override fun onResume() {
@@ -368,8 +380,9 @@ class LegacyCarPlayActivity : Activity() {
             }
         val identity = AirPlayPersistence.loadIdentity(this)
         val hostAddress: java.net.Inet4Address? = if (wireless) passiveWifiAddress() else null
-        val width = surfaceView.width.coerceAtLeast(64)
-        val height = surfaceView.height.coerceAtLeast(64)
+        // Negotiate against the window, not the surface: the surface shrinks to letterbox the canvas.
+        val width = videoFrame.width.coerceAtLeast(64)
+        val height = videoFrame.height.coerceAtLeast(64)
         val size = Pair(width / 2 * 2, height / 2 * 2)
         setStatus("启动 CarPlay 会话 ${size.first}x${size.second}…")
 
@@ -396,6 +409,7 @@ class LegacyCarPlayActivity : Activity() {
         sink = renderer
         videoWidth = airPlayConfig.main.widthPixels
         videoHeight = airPlayConfig.main.heightPixels
+        applyVideoLayout()
         latestSurface?.let {
             renderer.setSurface(SCREEN_TYPE_MAIN, it)
             renderer.setSurface(SCREEN_TYPE_ALT, it)
@@ -636,6 +650,45 @@ class LegacyCarPlayActivity : Activity() {
         else -> status.javaClass.simpleName
     }
 
+    /**
+     * Keeps the decoder surface at the negotiated canvas aspect. A pre-Lollipop SurfaceView scales
+     * its buffer to fill the view with no transform of its own, so letterboxing has to shrink the
+     * view itself; otherwise a rotation leaves the old-shaped stream stretched across the new one.
+     */
+    private fun applyVideoLayout() {
+        if (!::videoFrame.isInitialized || !::surfaceView.isInitialized) return
+        val hostWidth = videoFrame.width
+        val hostHeight = videoFrame.height
+        if (hostWidth <= 0 || hostHeight <= 0) return
+        val params = surfaceView.layoutParams as? FrameLayout.LayoutParams ?: return
+        val fullBleed = params.width == ViewGroup.LayoutParams.MATCH_PARENT &&
+            params.height == ViewGroup.LayoutParams.MATCH_PARENT &&
+            params.leftMargin == 0 && params.topMargin == 0
+        if (videoWidth <= 0 || videoHeight <= 0) {
+            if (fullBleed) return
+            params.width = ViewGroup.LayoutParams.MATCH_PARENT
+            params.height = ViewGroup.LayoutParams.MATCH_PARENT
+            params.leftMargin = 0
+            params.topMargin = 0
+            surfaceView.layoutParams = params
+            return
+        }
+        val content = com.shilapi.xcertplay.media.CarPlayVideoLayout.fit(
+            videoWidth, videoHeight, hostWidth, hostHeight,
+        )
+        val scaledWidth = content.width.toInt().coerceAtLeast(1)
+        val scaledHeight = content.height.toInt().coerceAtLeast(1)
+        val left = content.left.toInt()
+        val top = content.top.toInt()
+        if (params.width == scaledWidth && params.height == scaledHeight &&
+            params.leftMargin == left && params.topMargin == top) return
+        params.width = scaledWidth
+        params.height = scaledHeight
+        params.leftMargin = left
+        params.topMargin = top
+        surfaceView.layoutParams = params
+    }
+
     private fun onHostTouch(view: android.view.View, event: MotionEvent): Boolean {
         val activeController = controller ?: return true
         if (!sessionActive) return true
@@ -762,6 +815,9 @@ class LegacyCarPlayActivity : Activity() {
             runCatching { oldSink?.close() }
             applicationContext.stopService(Intent(applicationContext, DiPlaySessionService::class.java))
             runOnUiThread {
+                videoWidth = 0
+                videoHeight = 0
+                applyVideoLayout()
                 val next = afterShutdown
                 afterShutdown = null
                 shuttingDown.set(false)
