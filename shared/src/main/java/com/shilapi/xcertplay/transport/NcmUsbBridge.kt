@@ -42,12 +42,21 @@ class NcmUsbBridge internal constructor(
     private var queuedBytes = 0
     private var buffered = ByteArray(0)
     private var bufferedSize = 0
+    private var optionalShortPacketPad = false
     private val readBuffer = ByteArray(READ_CHUNK_BYTES)
     // Bulk IN uses one persistent async request: bulkTransfer() pins its byte[] in a JNI critical
     // section for the whole wait, which blocks ART's GC thread flip and, with it, every other USB
     // transfer (seen as ~0.8 s stalls of video and audio). A timed-out request stays queued, so no
     // data is lost between calls. This is the only requestWait() user on this connection.
-    private val directReadBuffer = ByteBuffer.allocateDirect(READ_CHUNK_BYTES)
+    private val directReadBuffer = ByteBuffer.allocateDirect(
+        // Android 8.0/8.1 throw rather than return false when a queued buffer passes the 16 KiB
+        // usbfs ceiling, so the async read must stay under it below API 28.
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) {
+            minOf(READ_CHUNK_BYTES, USBFS_BULK_URB_CEILING_BYTES)
+        } else {
+            READ_CHUNK_BYTES
+        },
+    )
     private var readRequest: UsbRequest? = null
     private var readQueued = false
     private val statusRunning = AtomicBoolean(statusEndpoint != null)
@@ -174,22 +183,33 @@ class NcmUsbBridge internal constructor(
 
     private fun drainFrames() {
         while (true) {
+            // wBlockLength describes the complete NTB. A packet-aligned transfer may end with a ZLP
+            // (no byte at all in the buffer) or with one zero byte forcing a short packet, so that
+            // byte is optional: waiting for it, or reading the next NTB's header as padding, both
+            // stall or corrupt the stream. The decision survives a split USB completion.
+            if (optionalShortPacketPad && bufferedSize > 0) {
+                when (buffered[0].toInt() and 0xff) {
+                    0 -> {
+                        buffered.copyInto(buffered, 0, 1, bufferedSize)
+                        bufferedSize -= 1
+                    }
+                    Ntb16Codec.NTH16_SIG and 0xff -> Unit // The next header is validated below.
+                    else -> throw failSession("Invalid NTB16 short-packet pad")
+                }
+                optionalShortPacketPad = false
+            }
             if (bufferedSize < 12) return
             if (readU32(buffered, 0) != Ntb16Codec.NTH16_SIG) {
                 throw failSession("NCM read buffer does not begin with an NTB16 header")
             }
             val blockLength = readU16(buffered, 8)
             if (blockLength < 28) throw failSession("Invalid NTB16 block length $blockLength")
-            val padded = blockLength % USB_PACKET_SIZE == 0
-            val wireLength = blockLength + if (padded) 1 else 0
-            if (bufferedSize < wireLength) return
-            if (padded && buffered[blockLength].toInt() != 0) {
-                throw failSession("Invalid NTB16 short-packet pad")
-            }
+            if (bufferedSize < blockLength) return
             for (frame in Ntb16Codec.parse(buffered, 0, blockLength)) enqueueFrame(frame)
-            val remaining = bufferedSize - wireLength
-            buffered.copyInto(buffered, 0, wireLength, bufferedSize)
+            val remaining = bufferedSize - blockLength
+            buffered.copyInto(buffered, 0, blockLength, bufferedSize)
             bufferedSize = remaining
+            optionalShortPacketPad = blockLength % USB_PACKET_SIZE == 0
         }
     }
 
@@ -226,7 +246,7 @@ class NcmUsbBridge internal constructor(
             // A null means "nothing this round" — the CarPlay TCP stream and the USBMUX keepalive
             // write path own authoritative error detection, exactly as on the async path.
             return connection.bulkTransfer(
-                inEndpoint, readBuffer, READ_CHUNK_BYTES, timeoutMillis.coerceAtLeast(1).toInt(),
+                inEndpoint, readBuffer, BULK_READ_BYTES, timeoutMillis.coerceAtLeast(1).toInt(),
             ).takeIf { it > 0 }
         }
         val request = try {
@@ -300,6 +320,7 @@ class NcmUsbBridge internal constructor(
 
     companion object {
         private const val READ_CHUNK_BYTES = 32 * 1024
+        private val BULK_READ_BYTES = minOf(READ_CHUNK_BYTES, USBFS_BULK_URB_CEILING_BYTES)
         private const val USB_PACKET_SIZE = 512
         private const val STATUS_POLL_TIMEOUT_MILLIS = 20
         private const val STATUS_POLL_INTERVAL_MILLIS = 500L

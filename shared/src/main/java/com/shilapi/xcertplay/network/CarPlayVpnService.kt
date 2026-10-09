@@ -358,7 +358,28 @@ class CarPlayVpnService : VpnService() {
         private const val SESSION_NAME = "xcertplay CarPlay"
         private const val TUN_MTU = 1500
 
-        /** Returns the VPN consent intent, or null when consent is already granted. */
-        fun prepare(context: Context): Intent? = VpnService.prepare(context)
+        /**
+         * Returns the VPN consent intent, or null when consent is already granted **or cannot be
+         * queried**. 4.x car ROMs can fail `prepareVpn` itself: the system server's exception is
+         * rethrown by `Parcel.readException` inside [VpnService.prepare], and treating an
+         * unanswerable question as a session-fatal error hides the only failure worth seeing, so
+         * the throwable is recorded and [android.net.VpnService.Builder.establish] stays the real
+         * permission gate.
+         */
+        fun prepare(context: Context): Intent? {
+            prepareError = null
+            return try {
+                VpnService.prepare(context)
+            } catch (error: Throwable) {
+                Log.w(TAG, "VpnService.prepare failed on this ROM: $error")
+                prepareError = error
+                null
+            }
+        }
+
+        /** Why the last [prepare] could not query consent; null when the platform answered. */
+        @Volatile
+        var prepareError: Throwable? = null
+            private set
     }
 }

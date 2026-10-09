@@ -1,8 +1,6 @@
 package com.shilapi.xcertplay
 
 import com.shilapi.xcertplay.systemServiceCompat
-import com.shilapi.xcertplay.checkSelfPermissionCompat
-import androidx.core.content.ContextCompat
 import android.bluetooth.BluetoothManager
 import android.content.Context
 import android.provider.Settings

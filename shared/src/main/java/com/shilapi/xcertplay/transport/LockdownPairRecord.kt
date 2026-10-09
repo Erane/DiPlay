@@ -12,7 +12,7 @@ import java.security.Signature
 import java.security.interfaces.RSAPublicKey
 import java.security.spec.RSAPublicKeySpec
 import java.text.SimpleDateFormat
-import android.util.Base64
+import com.shilapi.xcertplay.compat.Base64Compat
 import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
@@ -298,7 +298,7 @@ private object CertificateMaterialGenerator {
         val end = "-----END RSA PUBLIC KEY-----"
         require(text.startsWith(begin) && text.endsWith(end)) { "Expected a PKCS#1 RSA public key" }
         val encoded = text.substring(begin.length, text.length - end.length).filterNot(Char::isWhitespace)
-        val der = Base64.decode(encoded, Base64.DEFAULT)
+        val der = Base64Compat.decode(encoded)
         val outer = DerReader(der)
         val sequence = outer.readConstructed(0x30)
         val modulus = sequence.readPositiveInteger()
@@ -316,8 +316,9 @@ private object CertificateMaterialGenerator {
         if (commonName == null) sequence() else sequence(set(sequence(objectIdentifier("2.5.4.3"), utf8String(commonName))))
 
     private fun pem(label: String, der: ByteArray): ByteArray {
-        // android.util.Base64 replaces java.util.Base64 (API 26+); DEFAULT wraps at the standard 76 columns.
-        val encoded = Base64.encodeToString(der, Base64.DEFAULT)
+        // 64 columns with "\n": java.util.Base64.getMimeEncoder(64, "\n"), the framing the iPhone's
+        // lockdown reader expects. android.util.Base64.DEFAULT would wrap at 76 and add a newline.
+        val encoded = Base64Compat.encodeLines(der, 64, "\n")
         return "-----BEGIN $label-----\n$encoded\n-----END $label-----\n".toByteArray(Charsets.US_ASCII)
     }
 

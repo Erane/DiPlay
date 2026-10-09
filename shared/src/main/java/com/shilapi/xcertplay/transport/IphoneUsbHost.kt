@@ -384,7 +384,11 @@ class Iap2UsbSession internal constructor(
                 checkOpenLocked()
                 pendingRead = request
             }
-            val buffer = ByteBuffer.allocateDirect(USBMUX_READ_CHUNK_BYTES)
+            val buffer = ByteBuffer.allocateDirect(
+                // Android 8.0/8.1 throw instead of returning false when a queued buffer exceeds the
+                // 16 KiB usbfs ceiling, so a large read is fatal there rather than merely short.
+                if (Build.VERSION.SDK_INT < 28) USBFS_BULK_URB_CEILING_BYTES else USBMUX_READ_CHUNK_BYTES,
+            )
             if (!request.queue(buffer)) {
                 throw IphoneUsbException.DeviceUnavailable(
                     "Android could not queue USBMUX read request (${requestDiagnostics(timeoutMillis, buffer.capacity())})",
@@ -427,7 +431,9 @@ class Iap2UsbSession internal constructor(
      */
     private fun readBulkCompat(timeoutMillis: Long): ByteArray? {
         val transferred = connection.bulkTransfer(
-            inEndpoint, bulkReadBuffer, bulkReadBuffer.size, timeoutMillis.coerceAtLeast(1).toInt(),
+            inEndpoint, bulkReadBuffer,
+            minOf(bulkReadBuffer.size, USBFS_BULK_URB_CEILING_BYTES),
+            timeoutMillis.coerceAtLeast(1).toInt(),
         )
         if (transferred <= 0) return null
         return bulkReadBuffer.copyOf(transferred)
