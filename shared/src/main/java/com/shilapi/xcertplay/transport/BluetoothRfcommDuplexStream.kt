@@ -2,6 +2,8 @@ package com.shilapi.xcertplay.transport
 
 import android.bluetooth.BluetoothSocket
 import java.io.IOException
+import java.io.InputStream
+import java.io.OutputStream
 import java.util.ArrayDeque
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.math.min
@@ -17,8 +19,11 @@ class BluetoothRfcommDuplexStream(
 ) : BlockingDuplexByteStream {
     private val lock = Object()
     private val sendLock = Object()
-    private val input = socket.inputStream
-    private val output = socket.outputStream
+    // Both streams are taken before the reader starts: some vendor ROMs hand back a socket that
+    // connected successfully but has no usable channel, and that has to fail as an IOException on
+    // the thread that opened it rather than as a NullPointerException inside the reader.
+    private val input: InputStream = acquireStream("input") { socket.inputStream }
+    private val output: OutputStream = acquireStream("output") { socket.outputStream }
     private val pending = ArrayDeque<ByteArray>()
     private var pendingBytes = 0
     private var peerEnded = false
@@ -206,6 +211,9 @@ class BluetoothRfcommDuplexStream(
     private fun takePendingLocked(maxBytes: Int): ByteArray? {
         val chunk = pending.pollFirst() ?: return null
         pendingBytes -= chunk.size
+        // The reader parks here without a timeout once the buffer is full, so freeing space has to
+        // wake it: a consumer that only takes the next chunk would otherwise stall the link for good.
+        lock.notifyAll()
         if (chunk.size <= maxBytes) return chunk
 
         val head = chunk.copyOf(maxBytes)
@@ -261,4 +269,17 @@ class BluetoothRfcommDuplexStream(
         private const val FIRST_RX_PREVIEW_BYTES = 16
         private val EMPTY = ByteArray(0)
     }
+}
+
+/** Streams the platform reports as available but returns as null or throws for are a ROM defect. */
+private fun <T : Any> acquireStream(which: String, acquire: () -> T?): T {
+    var cause: Throwable? = null
+    val stream = try {
+        acquire()
+    } catch (error: Throwable) {
+        if (error is Error) throw error
+        cause = error
+        null
+    }
+    return stream ?: throw IOException("Bluetooth RFCOMM $which stream is unavailable", cause)
 }

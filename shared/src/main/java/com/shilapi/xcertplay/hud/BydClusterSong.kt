@@ -3,6 +3,7 @@ package com.shilapi.xcertplay.hud
 import android.annotation.SuppressLint
 import android.content.Context
 import android.util.Base64
+import com.shilapi.xcertplay.compat.Base64Compat
 import android.util.Log
 import com.shilapi.xcertplay.iap2.body.Iap2BodyReader
 import com.shilapi.xcertplay.iap2.wire.Iap2Frame
@@ -127,6 +128,8 @@ internal object BydClusterSong {
             val previous = state.current()
             state.accept(frame)
             val song = state.current()
+            // Each line the iPhone pushes, for example a lyric line in the title field.
+            if (song?.text != previous?.text) Log.i(TAG, "now playing: ${song?.text ?: "(cleared)"}")
             if (song == previous || !BydOutputSettings.clusterSong(app)) return
             if (song == null) {
                 stop(app)
@@ -276,7 +279,11 @@ internal object BydClusterSong {
         val output = shell.run(app, "CLASSPATH=$apk app_process /system/bin ${BydClusterSongTool::class.java.name} $args")
             ?: return false
         val failed = output.lineSequence().map { it.trim() }.filter { it.contains('=') }
-            .any { line -> line.substringAfter('=').trim().toIntOrNull() != 0 }
+            .any { line ->
+                val code = line.substringAfter('=').trim().toIntOrNull()
+                // Some devices report this even when the dashboard write succeeded.
+                code == null || (code != 0 && code != -2_147_482_648)
+            }
         if (failed) Log.w(TAG, "dashboard write failed: ${output.trim().take(160)}")
         return !failed
     }
@@ -325,7 +332,7 @@ object BydClusterSongTool {
         args.getOrNull(0)?.takeIf { it != "-" }?.let { println("source=${setState.invoke(device, DEVICE, SOURCE, it.toInt())}") }
         args.getOrNull(1)?.takeIf { it != "-" }?.let { println("state=${setState.invoke(device, DEVICE, STATE, it.toInt())}") }
         args.getOrNull(2)?.takeIf { it != "-" }?.let { encoded ->
-            val text = String(Base64.decode(encoded, Base64.DEFAULT), Charsets.UTF_8).toByteArray(Charsets.UTF_16LE)
+            val text = String(Base64Compat.decode(encoded), Charsets.UTF_8).toByteArray(Charsets.UTF_16LE)
             println("text=${if (text.size > ClusterSongState.MAX_TEXT_BYTES) "ERR too long" else setInfo.invoke(device, DEVICE, TEXT, text)}")
         }
     }
