@@ -85,6 +85,8 @@ class LegacyCarPlayActivity : Activity() {
     private var latestSurface: Surface? = null
     private var videoWidth = 0
     private var videoHeight = 0
+    private var sessionDisplay: CarPlaySessionDisplay? = null
+    private var rotationReconnectScheduled = false
     private val logLines = ArrayDeque<String>()
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -123,6 +125,7 @@ class LegacyCarPlayActivity : Activity() {
 
             override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
                 applyVideoLayout()
+                scheduleRotationReconnect()
             }
 
             override fun surfaceDestroyed(holder: SurfaceHolder) {
@@ -165,6 +168,7 @@ class LegacyCarPlayActivity : Activity() {
         mainHandler.post(object : Runnable {
             override fun run() {
                 applyVideoLayout()
+                scheduleRotationReconnect()
                 updateBtStatus()
                 mainHandler.postDelayed(this, 2000)
             }
@@ -214,7 +218,10 @@ class LegacyCarPlayActivity : Activity() {
         super.onConfigurationChanged(newConfig)
         // This activity declares orientation|screenSize in configChanges, so a rotation is
         // delivered here rather than recreating the host mid-session.
-        videoFrame.post { applyVideoLayout() }
+        videoFrame.post {
+            applyVideoLayout()
+            scheduleRotationReconnect()
+        }
     }
 
     override fun onResume() {
@@ -439,14 +446,12 @@ class LegacyCarPlayActivity : Activity() {
         )
         controller = next
         CarPlayMediaKeys.attach(this, next)
-        val rotation = try {
-            windowManager.defaultDisplay.rotation
-        } catch (_: Exception) {
-            0
-        }
+        val display = CarPlaySessionDisplay(
+            size.first, size.second, displayRotation(), false, false, width, height,
+        )
+        sessionDisplay = display
         CarPlayBackgroundSession.store(
-            next, renderer, size.first, size.second, this,
-            CarPlaySessionDisplay(size.first, size.second, rotation, false, false, width, height),
+            next, renderer, size.first, size.second, this, display,
         ) { completion ->
             runOnUiThread {
                 shutdown("断开连接", completion)
@@ -689,6 +694,58 @@ class LegacyCarPlayActivity : Activity() {
         surfaceView.layoutParams = params
     }
 
+    @Suppress("DEPRECATION")
+    private fun displayRotation(): Int = try {
+        windowManager.defaultDisplay.rotation
+    } catch (_: Exception) {
+        0
+    }
+
+    /**
+     * CarPlay only takes a canvas at handshake, so an orientation change cannot be followed without
+     * reconnecting. Compares the window rather than the surface: the surface is deliberately smaller
+     * whenever the letterbox is in effect.
+     */
+    private fun scheduleRotationReconnect() {
+        if (rotationReconnectScheduled || controller == null || !sessionActive) return
+        if (shuttingDown.get() || startPendingSurface || awaitingVpnConsent) return
+        val display = sessionDisplay ?: return
+        if (!displayNeedsReconnect(display, videoFrame.width, videoFrame.height, displayRotation())) return
+        rotationReconnectScheduled = true
+        mainHandler.postDelayed(rotationReconnect, DISPLAY_CHANGE_DEBOUNCE_MILLIS)
+    }
+
+    private val rotationReconnect = Runnable {
+        rotationReconnectScheduled = false
+        val display = sessionDisplay ?: return@Runnable
+        if (shuttingDown.get() || controller == null) return@Runnable
+        val width = videoFrame.width
+        val height = videoFrame.height
+        if (!displayNeedsReconnect(display, width, height, displayRotation())) return@Runnable
+        appendLog("屏幕比例已变 ${display.windowWidth}x${display.windowHeight} -> ${width}x${height}，重连让 iPhone 按新形状出流")
+        reconnectAttempts = 0
+        reconnectScheduled = false
+        setStatus("重连以适应新方向…")
+        shutdown("display rotated") { startSession() }
+    }
+
+    /** Whether the window shape moved enough that only a fresh handshake can follow it. */
+    private fun displayNeedsReconnect(
+        display: CarPlaySessionDisplay,
+        width: Int,
+        height: Int,
+        rotation: Int,
+    ): Boolean {
+        if (width <= 0 || height <= 0 || display.windowWidth <= 0 || display.windowHeight <= 0) return false
+        if (rotation == display.rotation) {
+            val aspectDiff = kotlin.math.abs(
+                (width.toDouble() / height) / (display.windowWidth.toDouble() / display.windowHeight) - 1.0,
+            )
+            if (aspectDiff <= 0.08) return false
+        }
+        return true
+    }
+
     private fun onHostTouch(view: android.view.View, event: MotionEvent): Boolean {
         val activeController = controller ?: return true
         if (!sessionActive) return true
@@ -807,6 +864,7 @@ class LegacyCarPlayActivity : Activity() {
         CarPlayBackgroundSession.clear(oldController)
         controller = null
         sink = null
+        sessionDisplay = null
         sessionActive = false
         stopInterfaceWatcher()
         Log.i(TAG, "shutdown reason=$reason")
@@ -888,6 +946,7 @@ class LegacyCarPlayActivity : Activity() {
         const val VPN_REQUEST = 4001
         const val MIC_REQUEST = 4002
         internal const val EXTRA_WIRELESS = "wireless"
+        private const val DISPLAY_CHANGE_DEBOUNCE_MILLIS = 500L
         private const val MAX_RECONNECT_ATTEMPTS = 50
         // CarPlayHostActivity's screen ids (110 main / 111 alt) - same wire values.
         const val SCREEN_TYPE_MAIN = 110
