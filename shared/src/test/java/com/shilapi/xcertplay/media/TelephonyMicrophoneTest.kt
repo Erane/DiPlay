@@ -91,6 +91,25 @@ class TelephonyMicrophoneTest {
         assertEquals(AudioRecord.STATE_UNINITIALIZED, record.state)
     }
 
+    @Test fun aCallOnTheCabinSpeakerCapturesRawAndLeavesTheAudioModeAlone() {
+        sink.close()
+        val diagnostics = CopyOnWriteArrayList<String>()
+        sink = AndroidMediaSink(context = context, callOnCabinSpeaker = true, onAudioDiagnostic = diagnostics::add)
+        manager.mode = AudioManager.MODE_NORMAL
+
+        sink.onMicrophoneStarted(telephony, config("telephony"))
+        val record = awaitCapture()
+
+        // Entering the communication mode would move the call off the speaker the user can hear.
+        assertEquals(AudioManager.MODE_NORMAL, manager.mode)
+        assertEquals(MediaRecorder.AudioSource.MIC, record.audioSource)
+        assertTrue(ShadowAudioEffect.getAudioEffects().isEmpty())
+
+        sink.onMicrophoneStopped(telephony)
+        assertEquals(AudioManager.MODE_NORMAL, manager.mode)
+        assertFalse(diagnostics.any { it.startsWith("Audio: mode") })
+    }
+
     @Test fun speechRecognitionDoesNotChangeModeOrEnableTelephonyEffects() {
         sink.onMicrophoneStarted(speechRecognition, config("speechrecognition"))
         val record = awaitCapture()

@@ -9,4 +9,6 @@
     <string name="contrib_audio_home_toggle_audio_focus_desc">Мультимедіа CarPlay отримує аудіофокус. Якщо звук зникає, коли цю функцію ввімкнено (деякі головні пристрої погано обробляють аудіофокус), вимкніть її. Зміни набудуть чинності після повторного підключення.</string>
     <string name="contrib_audio_home_toggle_navigation_duck">Приглушення музики під час навігації</string>
     <string name="contrib_audio_home_toggle_navigation_duck_desc">Музика стає тихішою, коли відтворюються навігаційні підказки, і відновлюється після них. Не потребує аудіофокусу. Зміни набудуть чинності після повторного підключення.</string>
+    <string name="contrib_audio_home_toggle_cabin_speaker_call">Виклики через динамік салону</string>
+    <string name="contrib_audio_home_toggle_cabin_speaker_call_desc">Для головних пристроїв, де телефонний звук Bluetooth не працює: виклики CarPlay відтворюються через медіадинамік, а мікрофон захоплюється без ехоподавлення та шумозаглушення. Зміни набудуть чинності після повторного підключення.</string>
 </resources>

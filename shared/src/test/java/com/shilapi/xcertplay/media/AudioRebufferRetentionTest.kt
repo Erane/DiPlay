@@ -101,6 +101,7 @@ class AudioRebufferRetentionTest {
             0, 1000,
             { _: String -> },
             null,
+            false,
         )
     }
 

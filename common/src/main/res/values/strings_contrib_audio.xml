@@ -8,4 +8,6 @@
     <string name="contrib_audio_home_toggle_audio_focus_desc">CarPlay media claims audio focus. If sound disappears while enabled (some head units handle focus badly), turn it off. Changes apply on reconnect.</string>
     <string name="contrib_audio_home_toggle_navigation_duck">Duck music for navigation</string>
     <string name="contrib_audio_home_toggle_navigation_duck_desc">Lowers the music while navigation guidance is speaking and restores it when the announcement ends. Works without audio focus. Changes apply on reconnect.</string>
+    <string name="contrib_audio_home_toggle_cabin_speaker_call">Calls on the cabin speaker</string>
+    <string name="contrib_audio_home_toggle_cabin_speaker_call_desc">For head units whose Bluetooth phone audio does not work: CarPlay calls play through the media speaker, and the microphone is captured without echo or noise processing. Changes apply on reconnect.</string>
 </resources>

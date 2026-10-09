@@ -62,7 +62,16 @@ class LegacyHomeActivity : Activity() {
         root.addView(button("兼容性自检（安卓版本 / 蓝牙能力）") {
             startActivity(Intent(this, LegacyCompatCheckActivity::class.java))
         })
-        root.addView(navigationDuckToggle())
+        root.addView(toggleButton(
+            "导航播报压低音乐",
+            { com.shilapi.xcertplay.AirPlayPersistence.loadNavigationDuckEnabled(this@LegacyHomeActivity) },
+            { enabled -> com.shilapi.xcertplay.AirPlayPersistence.saveNavigationDuckEnabled(this@LegacyHomeActivity, enabled) },
+        ))
+        root.addView(toggleButton(
+            "通话用车机喇叭和麦克风",
+            { com.shilapi.xcertplay.AirPlayPersistence.loadCallOnCabinSpeaker(this@LegacyHomeActivity) },
+            { enabled -> com.shilapi.xcertplay.AirPlayPersistence.saveCallOnCabinSpeaker(this@LegacyHomeActivity, enabled) },
+        ))
         root.addView(button("诊断信息") {
             startActivity(Intent(this, com.shilapi.xcertplay.DiPlayProbeActivity::class.java))
         })
@@ -84,23 +93,15 @@ class LegacyHomeActivity : Activity() {
     }
 
     /**
-     * The legacy home has no settings screen, so the one audio control worth changing on 4.4 is a
-     * button that shows and flips its own state. The sink reads the value when a session starts.
+     * The legacy home has no settings screen, so the audio switches worth having on 4.4 are buttons
+     * that show and flip their own state. The sink reads the value when a session starts.
      */
-    private fun navigationDuckToggle(): Button {
+    private fun toggleButton(label: String, load: () -> Boolean, save: (Boolean) -> Unit): Button {
         val control = Button(this)
-        fun paint() {
-            val enabled = com.shilapi.xcertplay.AirPlayPersistence
-                .loadNavigationDuckEnabled(this@LegacyHomeActivity)
-            control.text = "导航播报压低音乐：" + (if (enabled) "开" else "关") + "（重连后生效）"
-        }
+        fun paint() { control.text = "$label：" + (if (load()) "开" else "关") + "（重连后生效）" }
         paint()
         control.setOnClickListener {
-            val enabled = com.shilapi.xcertplay.AirPlayPersistence
-                .loadNavigationDuckEnabled(this@LegacyHomeActivity)
-            com.shilapi.xcertplay.AirPlayPersistence.saveNavigationDuckEnabled(
-                this@LegacyHomeActivity, !enabled,
-            )
+            save(!load())
             paint()
         }
         return control

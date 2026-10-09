@@ -8,4 +8,6 @@
     <string name="contrib_audio_home_toggle_audio_focus_desc">CarPlay 媒体向系统申请音频焦点；导航播报不会压低音乐。若开启后没有声音（部分车机焦点处理异常），请关闭本开关。更改在重新连接后生效。</string>
     <string name="contrib_audio_home_toggle_navigation_duck">导航播报压低音乐</string>
     <string name="contrib_audio_home_toggle_navigation_duck_desc">导航语音播报期间自动压低音乐，播报结束后恢复。不依赖音频焦点。更改在重新连接后生效。</string>
+    <string name="contrib_audio_home_toggle_cabin_speaker_call">通话用车机喇叭和麦克风</string>
+    <string name="contrib_audio_home_toggle_cabin_speaker_call_desc">用于蓝牙电话音频不可用的车机：CarPlay 通话改由媒体喇叭播放，麦克风不做回声消除与降噪。更改在重新连接后生效。</string>
 </resources>

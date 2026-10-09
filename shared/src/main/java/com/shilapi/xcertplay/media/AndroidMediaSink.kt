@@ -171,6 +171,8 @@ class AndroidMediaSink(
     private val audioFocusEnabled: Boolean = false,
     /** Lower music while navigation guidance is audible; navigation claims no focus, so this ducks by hand. */
     private val navigationDuckEnabled: Boolean = true,
+    /** Play CarPlay calls on the cabin speaker and take the microphone raw, without a phone audio path. */
+    private val callOnCabinSpeaker: Boolean = false,
     private val mediaChannel: Int = 0,
     private val navigationChannel: Int = 0,
     context: Context? = null,
@@ -335,9 +337,14 @@ class AndroidMediaSink(
     override fun onMicrophoneStarted(id: AudioStreamId, config: MicrophoneConfig) {
         // This callback runs on the downlink thread; microphone failures must not stop playback.
         try {
-            if (config.audioType == "telephony") enterCommunicationMode(id)
+            val speakerphoneCall = callOnCabinSpeaker && config.audioType == "telephony"
+            // The communication mode exists to hand the call to a Bluetooth phone path; with the
+            // cabin speaker in use it would only take media audio away.
+            if (config.audioType == "telephony" && !speakerphoneCall) enterCommunicationMode(id)
             // Map.computeIfAbsent needs API 24; stdlib getOrPut uses putIfAbsent, safe on API 23.
-            val uplink = microphoneUplinks.getOrPut(id) { MicrophoneUplink(config, onAudioDiagnostic) }
+            val uplink = microphoneUplinks.getOrPut(id) {
+                MicrophoneUplink(config, onAudioDiagnostic, speakerphoneCall = speakerphoneCall)
+            }
             if (!uplink.start()) {
                 microphoneUplinks.remove(id, uplink)
                 restoreAudioMode(id)
@@ -468,6 +475,7 @@ class AndroidMediaSink(
             mediaBufferMillis,
             onAudioDiagnostic,
             activityReports,
+            speakerphoneCall = callOnCabinSpeaker && format.audioType == "telephony",
         ).also {
             it.setDucked(duckedAt)
             audioRenderers[id] = it
@@ -893,6 +901,8 @@ private class AudioRenderer(
     private val report: (String) -> Unit,
     /** Receives audible transitions from navigation guidance; null when ducking is off. */
     private val onNavigationActive: ((AudioRenderer, Boolean) -> Unit)? = null,
+    /** A telephony stream that has no phone audio path in the car; it plays with the media. */
+    private val speakerphoneCall: Boolean = false,
 ) : Closeable {
     private data class AudioPacket(val rtp: ByteArray, val sample: Int)
 
@@ -1266,11 +1276,12 @@ private class AudioRenderer(
         } else {
             AudioChannelMappingMode.MOBILE_COMPATIBLE
         }
-        return AudioChannelMapper.map(
+        val selection = AudioChannelMapper.map(
             audioType = format.audioType,
             payloadType = format.payloadType,
             mode = mode,
         )
+        return if (speakerphoneCall) AudioChannelMapper.playCallOnSpeaker(selection) else selection
     }
 
     private fun audioAttributesFor(selection: AudioChannelSelection): AudioAttributes =

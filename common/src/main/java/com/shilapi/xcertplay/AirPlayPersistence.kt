@@ -45,6 +45,7 @@ object AirPlayPersistence {
     private const val KEY_ADVANCED_AUDIO_CHANNEL_MAPPING = "advanced_audio_channel_mapping"
     private const val KEY_AUDIO_FOCUS_ENABLED = "audio_focus_enabled"
     private const val KEY_NAVIGATION_DUCK_ENABLED = "navigation_duck_enabled"
+    private const val KEY_CALL_ON_CABIN_SPEAKER = "call_on_cabin_speaker"
     private const val KEY_MEDIA_AUDIO_CHANNEL = "media_audio_channel"
     private const val KEY_NAVIGATION_AUDIO_CHANNEL = "navigation_audio_channel"
     private const val KEY_NAVIGATION_STREAM_TYPE = "navigation_stream_type"
@@ -219,6 +220,20 @@ object AirPlayPersistence {
     fun saveNavigationDuckEnabled(context: Context, enabled: Boolean) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
             .putBoolean(KEY_NAVIGATION_DUCK_ENABLED, enabled)
+            .apply()
+    }
+
+    /**
+     * Off by default: a unit whose Bluetooth phone path works should keep the echo cancellation and
+     * noise suppression that only the communication route provides.
+     */
+    fun loadCallOnCabinSpeaker(context: Context): Boolean =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getBoolean(KEY_CALL_ON_CABIN_SPEAKER, false)
+
+    fun saveCallOnCabinSpeaker(context: Context, enabled: Boolean) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+            .putBoolean(KEY_CALL_ON_CABIN_SPEAKER, enabled)
             .apply()
     }
 

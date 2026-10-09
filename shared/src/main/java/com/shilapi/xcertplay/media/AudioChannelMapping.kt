@@ -53,6 +53,18 @@ internal object AudioChannelMapper {
     fun usesNavigationStream(audioType: String, payloadType: Int, advanced: Boolean): Boolean =
         !advanced && map(audioType, payloadType, AudioChannelMappingMode.MOBILE_COMPATIBLE).channel == AudioChannel.NAVIGATION
 
+    /**
+     * Without a working phone-audio path in the car there is no SCO, so a CarPlay telephony stream
+     * has to play on the media speaker instead of the phone usage. Moving it to
+     * [AudioChannel.MEDIA] also makes it follow the configured media output channel.
+     */
+    fun playCallOnSpeaker(selection: AudioChannelSelection): AudioChannelSelection =
+        if (selection.channel == AudioChannel.PHONE) {
+            AudioChannelSelection(AudioChannel.MEDIA, AudioContentType.SPEECH, selection.streamType)
+        } else {
+            selection
+        }
+
     private fun mapMobileCompatible(
         audioType: String,
         payloadType: Int,

@@ -88,4 +88,11 @@ class AudioChannelPersistenceTest {
         AirPlayPersistence.saveNavigationDuckEnabled(context, true)
         assertEquals(true, AirPlayPersistence.loadNavigationDuckEnabled(context))
     }
+
+    @Test fun cabinSpeakerCallsDefaultOffAndKeepTheSavedChoice() {
+        // The phone path carries echo cancellation, so a working unit must not lose it by surprise.
+        assertEquals(false, AirPlayPersistence.loadCallOnCabinSpeaker(context))
+        AirPlayPersistence.saveCallOnCabinSpeaker(context, true)
+        assertEquals(true, AirPlayPersistence.loadCallOnCabinSpeaker(context))
+    }
 }
