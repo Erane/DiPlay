@@ -8,6 +8,7 @@ Add changes after 0.2.12 here.
 - compat-4.4: wake the Bluetooth RFCOMM reader as soon as the consumer frees pending space, because it parks without a timeout at the 64 KiB limit and the link stalled permanently; a socket whose streams the ROM hands back null or throwing now fails as an `IOException` on the thread that opened it, so the next transport mode is tried instead of the reader dying.
 - compat-4.4: send the microphone as Opus on 4.4 by encoding with the vendored Concentus library when the platform has no MediaCodec Opus encoder, and name the encoder implementation in the diagnostic report for each microphone stream.
 - compat-4.4: keep the Bluetooth bootstrap as the session's iAP2 control channel when the tunnel never arrives, and stop the wireless control loop from expiring after five minutes, because that ended NowPlaying and lyric updates for the rest of the run; the bootstrap is released as soon as the tunnel takes over. A dashboard write that reports `-2147482648` counts as success, as some BYD units return it while working.
+- compat-4.4: export the diagnostic report as a granted file rather than pasting it into the share intent, read only the tail of the running log because Dalvik copied a 24 MB buffer into one `StringBuilder` and threw `OutOfMemoryError` on the Home screen, and put that Home in a scroll container so the last action is not clipped to a few pixels on a short screen. Saved reports are listed with size and time so an earlier run can be re-shared without adb or a file manager.
 
 # DiPlay 0.2.12 — 2026-10-04
 

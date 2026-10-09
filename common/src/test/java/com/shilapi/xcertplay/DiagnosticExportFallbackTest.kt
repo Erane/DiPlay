@@ -123,6 +123,27 @@ class DiagnosticExportFallbackTest {
         assertEquals("report 11", read(latest!!))
     }
 
+    /** The View home offers this list, so it has to cover both served directories. */
+    @Test fun savedReportsComeFromBothDirectoriesNewestFirst() {
+        reports.mkdirs(); privateReports.mkdirs()
+        File(reports, "external.txt").apply { writeText("external") }.setLastModified(1_000L)
+        File(privateReports, "private.txt").apply { writeText("private") }.setLastModified(9_000L)
+        assertEquals(
+            listOf("private.txt", "external.txt"),
+            DiagnosticExportStore.savedReports(context).map { it.name },
+        )
+    }
+
+    @Test fun anEarlierReportCanBeSharedAgain() {
+        reports.mkdirs()
+        val older = File(reports, "diplay-log-older.txt").apply { writeText("older") }
+        val newer = File(reports, "diplay-log-newer.txt").apply { writeText("newer") }
+        older.setLastModified(1_000_000L)
+        newer.setLastModified(2_000_000L)
+        assertEquals(listOf(newer, older), DiagnosticExportStore.savedReports(context))
+        assertEquals("older", read(DiagnosticExportStore.shareUri(context, older)))
+    }
+
     private fun read(uri: Uri) = context.contentResolver.openInputStream(uri)!!.bufferedReader().use { it.readText() }
 
     private fun registerReportProvider() {

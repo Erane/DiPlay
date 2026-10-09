@@ -86,6 +86,9 @@ object LegacyDiagnostics {
     /** Rotate the running log instead of letting a soak test fill the stick. */
     private const val MAX_LOG_BYTES = 24L * 1024 * 1024
 
+    /** How much of a log one read carries: enough to diagnose a run, little enough for a 4.4 heap. */
+    private const val TAIL_BYTES = 512 * 1024
+
     fun append(context: Context, name: String, text: String): List<LegacyWriteResult> =
         writeAll(targets(context).map { (label, dir) -> label to File(dir, name) }) { appendText(text) }
 
@@ -115,21 +118,38 @@ object LegacyDiagnostics {
     }
 
     /**
-     * The newest copy of one log, with the path it came from. Every target receives the same
-     * write, so returning all of them tripled the exported report; the largest file wins, because
-     * a target written before the storage grant can be short or missing.
+     * The newest copy of one log, read only from its end, with the path it came from. Every target
+     * receives the same write, so returning all of them tripled the exported report; the largest
+     * read wins, because a target written before the storage grant can be short or missing.
+     *
+     * The tail is capped because Dalvik grows a `StringBuilder` by copying the whole buffer: reading
+     * a rotated 24 MB soak log end to end reported success on the screen then threw
+     * `OutOfMemoryError` while composing the report, which is exactly the crash a user cannot read.
      */
-    fun readAll(context: Context, name: String): LegacyLogFile? {
+    fun readTail(context: Context, name: String, maxBytes: Int = TAIL_BYTES): LegacyLogFile? {
         var best: LegacyLogFile? = null
         for ((_, dir) in targets(context)) {
             val file = File(dir, name)
             if (!file.exists()) continue
-            val text = runCatching { file.readText() }.getOrElse { continue }
+            val text = runCatching { tailOf(file, maxBytes) }.getOrElse { continue }
             if (best == null || text.length > best.text.length) {
                 best = LegacyLogFile(file.absolutePath, text)
             }
         }
         return best
+    }
+
+    private fun tailOf(file: File, maxBytes: Int): String {
+        return java.io.RandomAccessFile(file, "r").use { access ->
+            val length = access.length()
+            val start = maxOf(0L, length - maxBytes)
+            access.seek(start)
+            val buffer = ByteArray((length - start).toInt())
+            access.readFully(buffer)
+            val text = String(buffer, Charsets.UTF_8)
+            // A tail can begin mid-line; drop the fragment so the reader never sees a broken row.
+            if (start > 0L) text.substringAfter('\n') else text
+        }
     }
 
     fun crashEntry(what: String, error: Throwable): String {

@@ -90,7 +90,7 @@ class DiPlayProbeActivity : Activity() {
             com.shilapi.xcertplay.legacy.LegacyDiagnostics.STARTED_FILE,
             com.shilapi.xcertplay.legacy.LegacyDiagnostics.LOG_FILE,
         )) {
-            val file = com.shilapi.xcertplay.legacy.LegacyDiagnostics.readAll(probeContext, name)
+            val file = com.shilapi.xcertplay.legacy.LegacyDiagnostics.readTail(probeContext, name)
             if (file != null) {
                 found = true
                 appendLine("==== $name (${file.path}) ====")

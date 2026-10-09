@@ -66,24 +66,8 @@ class LegacyHomeActivity : Activity() {
         root.addView(button("诊断信息") {
             startActivity(Intent(this, com.shilapi.xcertplay.DiPlayProbeActivity::class.java))
         })
-        root.addView(button("导出诊断日志（写入存储并分享）") {
-            val text = diagnosticText()
-            val written = com.shilapi.xcertplay.legacy.LegacyDiagnostics.saveSnapshot(
-                this@LegacyHomeActivity, text,
-            )
-            status.text = "日志已写入:\n" + written.joinToString("\n") { it.toString() }
-            runCatching {
-                val send = Intent(Intent.ACTION_SEND).apply {
-                    type = "text/plain"
-                    putExtra(Intent.EXTRA_SUBJECT, "DiPlay 诊断日志")
-                    putExtra(Intent.EXTRA_TEXT, text)
-                }
-                startActivity(Intent.createChooser(send, "分享诊断日志"))
-            }.onFailure {
-                status.text = status.text.toString() +
-                    "\n分享目标不可用(${it.javaClass.simpleName})：请改用上面的文件"
-            }
-        })
+        root.addView(button("导出诊断日志（写入存储并分享）") { exportDiagnostics() })
+        root.addView(button("分享已保存的诊断文件") { shareSavedReport() })
         root.addView(TextView(this).apply {
             text = "compat-4.4 分支 · 上游 0.2.12 · View 界面"
             textSize = 11f
@@ -91,7 +75,12 @@ class LegacyHomeActivity : Activity() {
             gravity = Gravity.CENTER
             setPadding(0, pad * 2, 0, 0)
         })
-        setContentView(root)
+        // A 4.4 unit's screen is shorter than this list: without a scroll container the last action
+        // is squeezed to a few pixels and cannot be tapped at all.
+        setContentView(android.widget.ScrollView(this).apply {
+            addView(root)
+            isFillViewport = true
+        })
     }
 
     /**
@@ -117,6 +106,73 @@ class LegacyHomeActivity : Activity() {
         return control
     }
 
+    /**
+     * A report on a 4.4 unit is read off the screen or pulled off a stick, so the same text goes to
+     * every storage target first, then to a provider-visible copy an ordinary app can open. Only the
+     * text is pasted when even that copy fails, because a full log is too large for a share intent.
+     */
+    private fun exportDiagnostics() {
+        val text = diagnosticText()
+        val written = LegacyDiagnostics.saveSnapshot(this, text)
+        status.text = "日志已写入:\n" + written.joinToString("\n") { it.toString() }
+        val saved = runCatching {
+            com.shilapi.xcertplay.DiagnosticExportStore.saveWithoutPicker(this, "diplay-log", text)
+        }
+        val shareable = saved.getOrNull()
+        if (shareable != null) {
+            shareReport(shareable.uri)
+            return
+        }
+        runCatching {
+            startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply {
+                type = "text/plain"
+                putExtra(Intent.EXTRA_SUBJECT, "DiPlay 诊断日志")
+                putExtra(Intent.EXTRA_TEXT, text)
+            }, "分享诊断日志"))
+        }.onFailure {
+            status.text = status.text.toString() +
+                "\n分享不可用(${it.javaClass.simpleName})，文件也已保存失败(${saved.exceptionOrNull()})：请换一台设备读文件"
+        }
+    }
+
+    /** Lets an owner re-share an earlier run: the newest saved reports, with size and time. */
+    private fun shareSavedReport() {
+        val reports = com.shilapi.xcertplay.DiagnosticExportStore.savedReports(this)
+        if (reports.isEmpty()) {
+            status.text = "还没有已保存的诊断文件。先按「导出诊断日志」。"
+            return
+        }
+        val stamps = java.text.SimpleDateFormat("MM-dd HH:mm", java.util.Locale.US)
+        val labels = reports.map { "${it.name}\n${it.length() / 1024} KB · ${stamps.format(java.util.Date(it.lastModified()))}" }
+        android.app.AlertDialog.Builder(this)
+            .setTitle("分享已保存的诊断文件")
+            .setItems(labels.toTypedArray()) { _, index ->
+                val chosen = runCatching {
+                    shareReport(com.shilapi.xcertplay.DiagnosticExportStore.shareUri(this, reports[index]))
+                }
+                if (chosen.isFailure) {
+                    status.text = "无法分享 ${reports[index].name}(${chosen.exceptionOrNull()})"
+                }
+            }
+            .setNegativeButton("关闭", null)
+            .show()
+    }
+
+    /** The file travels as a granted content URI, so the receiving app never needs storage permission. */
+    private fun shareReport(uri: android.net.Uri) {
+        val send = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_SUBJECT, "DiPlay 诊断日志")
+            putExtra(Intent.EXTRA_STREAM, uri)
+            clipData = android.content.ClipData.newRawUri("DiPlay 诊断日志", uri)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        runCatching { startActivity(Intent.createChooser(send, "分享诊断日志")) }
+            .onFailure {
+                status.text = status.text.toString() + "\n分享目标不可用(${it.javaClass.simpleName})：请改用上面写入的文件"
+            }
+    }
+
     private fun diagnosticText(): String = buildString {
         appendLine(com.shilapi.xcertplay.legacy.LegacyDiagnostics.platformReport(this@LegacyHomeActivity))
         for (name in listOf(
@@ -124,7 +180,7 @@ class LegacyHomeActivity : Activity() {
             com.shilapi.xcertplay.legacy.LegacyDiagnostics.STARTED_FILE,
             com.shilapi.xcertplay.legacy.LegacyDiagnostics.LOG_FILE,
         )) {
-            val file = com.shilapi.xcertplay.legacy.LegacyDiagnostics.readAll(this@LegacyHomeActivity, name)
+            val file = com.shilapi.xcertplay.legacy.LegacyDiagnostics.readTail(this@LegacyHomeActivity, name)
             appendLine("==== $name ${file?.path ?: "(无)"} ====")
             appendLine(file?.text ?: "")
         }

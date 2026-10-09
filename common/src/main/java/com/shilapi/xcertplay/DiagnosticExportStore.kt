@@ -94,4 +94,23 @@ internal object DiagnosticExportStore {
             ?: throw IOException("Report destination is unavailable")
         stream.bufferedWriter(Charsets.UTF_8).use { it.write(report) }
     }
+
+    /**
+     * The directories the report provider is allowed to serve. Both are listed because a unit whose
+     * external storage is not yet granted falls back to the private one, and an older export can
+     * live in either.
+     */
+    private fun reportDirectories(context: Context): List<File> = listOfNotNull(
+        context.getExternalFilesDir(null)?.let { File(it, "diagnostic-reports") },
+        File(context.filesDir, "diagnostic-reports"),
+    ).filter { it.isDirectory }
+
+    /** Saved reports, newest first: the View home lists these so an earlier run can still be shared. */
+    fun savedReports(context: Context): List<File> = reportDirectories(context)
+        .flatMap { directory -> directory.listFiles()?.filter { it.isFile }.orEmpty() }
+        .sortedByDescending { it.lastModified() }
+
+    /** A shareable URI for an already-saved report, so no adb or file manager is needed to read it. */
+    fun shareUri(context: Context, report: File): Uri =
+        FileProvider.getUriForFile(context, "${context.packageName}.diagnostic-reports", report)
 }
