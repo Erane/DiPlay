@@ -14,6 +14,7 @@ Add changes after 0.2.12 here.
 - compat-4.4: recover from a music underrun once instead of repeatedly, because the rebuffer test only fired when the buffered estimate hit exactly zero — a unit whose estimate sits a little above the playback head starved for the rest of the run — so the residual now counts against half the restart threshold, is carried into the restarted prebuffer rather than discarded, and re-arms the short-tail wait.
 - compat-4.4: put the call audio-mode transitions in the exported report, with a failed restore still reported when the ROM's own mode getter throws, and a microphone report that cannot be delivered no longer stops the microphone from capturing.
 - compat-4.4: write a failure and its cause chain, each with the frame it came from, into the session log instead of only the outermost message, because a wrapped `USBMUX read failed` hid the reason that a unit without adb is the only place it is recorded.
+- compat-4.4: name the message IDs the iPhone called unsupported inside a rejected iAP2 identification, bounded to 32 per direction with empty, malformed and omitted payloads counted separately, because a bare parameter list could not say which advertised message the phone objected to.
 
 # DiPlay 0.2.12 — 2026-10-04
 
