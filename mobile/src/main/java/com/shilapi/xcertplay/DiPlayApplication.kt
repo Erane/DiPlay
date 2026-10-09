@@ -3,6 +3,7 @@ package com.shilapi.xcertplay
 import android.content.Context
 import android.widget.Toast
 import androidx.multidex.MultiDexApplication
+import com.shilapi.xcertplay.compat.uncaughtFailureIsContained
 import com.shilapi.xcertplay.network.isMdnsOwnedThread
 import com.shilapi.xcertplay.legacy.LegacyDiagnostics
 import com.shilapi.xcertplay.legacy.LegacyDiagnostics.CRASH_FILE
@@ -25,29 +26,36 @@ import com.shilapi.xcertplay.legacy.LegacyDiagnostics.STARTED_FILE
 class DiPlayApplication : MultiDexApplication() {
     override fun attachBaseContext(base: Context) {
         val previous = Thread.getDefaultUncaughtExceptionHandler()
+        val mainThread = runCatching { android.os.Looper.getMainLooper().thread }.getOrNull()
         Thread.setDefaultUncaughtExceptionHandler { thread, error ->
-            // A library thread is not ours to die for: JmDNS creates threads the app cannot wrap, and
-            // on a unit that cannot load its bytecode their failure would end an otherwise healthy
-            // session, so it is reported and the run continues.
-            val contained = isMdnsOwnedThread(thread.name)
+            // A library thread is not ours to die for, and neither is a framework class this ROM
+            // cannot link: ending the process looks like a broken app, and leaves the iPhone holding
+            // a half-open CarPlay session that then refuses every reconnect attempt.
+            val contained = uncaughtFailureIsContained(thread, error, mainThread)
+            val fromLibrary = isMdnsOwnedThread(thread.name)
             runCatching {
                 Toast.makeText(
                     base,
-                    if (contained) {
-                        "DiPlay 忽略了 Bonjour 线程的错误（连接继续）: " +
-                            "${error.javaClass.simpleName}: ${error.message?.take(80)}"
-                    } else {
-                        "DiPlay 启动错误: ${error.javaClass.simpleName}: ${error.message?.take(80)}"
+                    when {
+                        fromLibrary -> "DiPlay 忽略了 Bonjour 线程的错误（连接继续）: ${detail(error)}"
+                        contained -> "这台系统缺少 DiPlay 需要的接口，本次连接已中止（应用保留）: ${detail(error)}"
+                        else -> "DiPlay 启动错误: ${detail(error)}"
                     },
                     Toast.LENGTH_LONG,
                 ).show()
             }
             runCatching {
+                // This file survives an APK swap, so each entry carries the build that produced it:
+                // an old entry read back after a fix looks like a new failure on a different phone.
                 LegacyDiagnostics.append(
                     base,
                     CRASH_FILE,
                     LegacyDiagnostics.crashEntry(
-                        "uncaught on ${thread.name}" + if (contained) " contained=mdnsThread" else "",
+                        "uncaught on ${thread.name} build=${LegacyDiagnostics.appVersion(base)}" + when {
+                            !contained -> ""
+                            fromLibrary -> " contained=mdnsThread"
+                            else -> " contained=linkageError"
+                        },
                         error,
                     ),
                 )
@@ -71,3 +79,7 @@ class DiPlayApplication : MultiDexApplication() {
         }
     }
 }
+
+/** A car driver needs the class of failure and its head, not a wall of text. */
+private fun detail(error: Throwable): String =
+    "${error.javaClass.simpleName}: ${error.message?.take(80) ?: "no message"}"
