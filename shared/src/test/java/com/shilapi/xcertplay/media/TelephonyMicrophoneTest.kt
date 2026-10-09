@@ -6,6 +6,7 @@ import android.media.AudioRecord
 import android.media.MediaRecorder
 import android.media.audiofx.AcousticEchoCanceler
 import android.media.audiofx.AudioEffect
+import com.shilapi.xcertplay.airplay.AudioCodecKind
 import com.shilapi.xcertplay.airplay.AudioStreamId
 import com.shilapi.xcertplay.airplay.MicrophoneConfig
 import java.net.InetAddress
@@ -212,6 +213,88 @@ class TelephonyMicrophoneTest {
         assertTrue(ShadowLog.getLogsForTag("xcertplay-usb").any { it.msg.contains("microphone start failed") })
     }
 
+    @Test
+    @Config(shadows = [DenyingModeAudioManager::class])
+    fun aRefusedModeRestoreIsStillReportedWithTheModeTheUnitReports() {
+        verifyRefusedRestore(failsGetter = false)
+    }
+
+    @Test
+    @Config(shadows = [DenyingModeAudioManager::class])
+    fun anAudioManagerWhoseModeGetterThrowsCannotBreakMicrophoneTeardown() {
+        verifyRefusedRestore(failsGetter = true)
+    }
+
+    private fun verifyRefusedRestore(failsGetter: Boolean) {
+        sink.close()
+        val diagnostics = CopyOnWriteArrayList<String>()
+        sink = AndroidMediaSink(context = context, onAudioDiagnostic = diagnostics::add)
+        manager.mode = AudioManager.MODE_RINGTONE
+        sink.onMicrophoneStarted(telephony, config("telephony"))
+        val record = awaitCapture()
+        DenyingModeAudioManager.denySetMode = true
+        DenyingModeAudioManager.denyGetMode = failsGetter
+        try {
+            sink.onMicrophoneStopped(telephony)
+            assertEquals(AudioRecord.STATE_UNINITIALIZED, record.state)
+            assertTrue(ShadowAudioEffect.getAudioEffects().isEmpty())
+            val failure = diagnostics.single { it.startsWith("Audio: mode restore failed") }
+            val current = if (failsGetter) "unknown" else AudioManager.MODE_IN_COMMUNICATION.toString()
+            assertTrue(failure, failure.contains("requested=${AudioManager.MODE_RINGTONE} now=$current"))
+            assertTrue(failure, failure.contains("error=SecurityException"))
+            sink.onMicrophoneStopped(telephony)
+            assertEquals(1, diagnostics.count { it.startsWith("Audio: mode restore failed") })
+        } finally {
+            DenyingModeAudioManager.resetDenials()
+        }
+    }
+
+    @Test fun microphoneEntersAndRestoresTheCommunicationModeInTheReport() {
+        sink.close()
+        val diagnostics = CopyOnWriteArrayList<String>()
+        sink = AndroidMediaSink(context = context, onAudioDiagnostic = diagnostics::add)
+        manager.mode = AudioManager.MODE_RINGTONE
+        sink.onMicrophoneStarted(telephony, config("telephony"))
+        awaitCapture()
+        val entered = "Audio: mode entered communication from=${AudioManager.MODE_RINGTONE}"
+        val restored = "Audio: mode restored requested=${AudioManager.MODE_RINGTONE}"
+        val joined = diagnostics.joinToString(separator = " | ")
+        assertTrue(joined, diagnostics.any { it.startsWith(entered) })
+        sink.onMicrophoneStopped(telephony)
+        assertTrue(diagnostics.joinToString(separator = " | "),
+            diagnostics.any { it.startsWith(restored) })
+    }
+
+    @Test fun aRejectedDiagnosticCannotStopTheMicrophoneFromCapturing() {
+        val uplink = MicrophoneUplink(
+            config("speechrecognition").copy(codec = AudioCodecKind.OPUS),
+            onDiagnostic = { throw IllegalStateException("report unavailable") },
+            opusEncoderFactory = { SoftwareOpusEncoder(it) },
+        )
+        try {
+            assertTrue(uplink.start())
+            assertEquals(AudioRecord.RECORDSTATE_RECORDING, awaitCapture().recordingState)
+        } finally { uplink.close() }
+        assertEquals(AudioRecord.STATE_UNINITIALIZED, recorder.get()!!.state)
+    }
+
+    @Test fun anUnavailableOpusEncoderFailsBeforeCaptureAndAllowsAnotherAttempt() {
+        val diagnostics = CopyOnWriteArrayList<String>()
+        var attempts = 0
+        val uplink = MicrophoneUplink(
+            config("telephony").copy(codec = AudioCodecKind.OPUS),
+            onDiagnostic = diagnostics::add,
+            opusEncoderFactory = { attempts++; null },
+        )
+        try {
+            assertFalse(uplink.start())
+            assertFalse(uplink.start())
+            assertEquals(2, attempts)
+            assertNull(recorder.get())
+            assertEquals(2, diagnostics.count { it.contains("stage=ENCODER") })
+        } finally { uplink.close() }
+    }
+
     private fun awaitCapture(): AudioRecord {
         assertTrue("Microphone capture did not start", readStarted.await(5, TimeUnit.SECONDS))
         return requireNotNull(recorder.get())
@@ -264,6 +347,31 @@ class TelephonyMicrophoneTest {
         @Implementation
         override fun setMode(mode: Int) {
             throw SecurityException("Mode change denied")
+        }
+    }
+    @Implements(AudioManager::class)
+    class DenyingModeAudioManager : ShadowAudioManager() {
+        @Implementation
+        override fun setMode(mode: Int) {
+            if (denySetMode) throw SecurityException("Mode change denied")
+            super.setMode(mode)
+        }
+
+        @Implementation
+        override fun getMode(): Int {
+            if (denyGetMode) throw IllegalStateException("Mode unavailable")
+            return super.getMode()
+        }
+
+        companion object {
+            var denySetMode = false
+            var denyGetMode = false
+
+            @Resetter @JvmStatic
+            fun resetDenials() {
+                denySetMode = false
+                denyGetMode = false
+            }
         }
     }
 }

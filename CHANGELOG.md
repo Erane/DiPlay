@@ -11,6 +11,9 @@ Add changes after 0.2.12 here.
 - compat-4.4: export the diagnostic report as a granted file rather than pasting it into the share intent, read only the tail of the running log because Dalvik copied a 24 MB buffer into one `StringBuilder` and threw `OutOfMemoryError` on the Home screen, and put that Home in a scroll container so the last action is not clipped to a few pixels on a short screen. Saved reports are listed with size and time so an earlier run can be re-shared without adb or a file manager.
 - compat-4.4: send touch reports on the AirPlay event channel with `TCP_NODELAY`, because the iPhone never answers them there and Nagle held each touch behind the previous one's delayed ACK, so drags arrived in bunches.
 - compat-4.4: stop asking the ROM for Android's NSD service when a session is published through interface-bound mDNS, because a head unit without that service used to throw while the object was still being constructed; the NSD-only route now names the missing service as an `IOException` instead.
+- compat-4.4: recover from a music underrun once instead of repeatedly, because the rebuffer test only fired when the buffered estimate hit exactly zero — a unit whose estimate sits a little above the playback head starved for the rest of the run — so the residual now counts against half the restart threshold, is carried into the restarted prebuffer rather than discarded, and re-arms the short-tail wait.
+- compat-4.4: put the call audio-mode transitions in the exported report, with a failed restore still reported when the ROM's own mode getter throws, and a microphone report that cannot be delivered no longer stops the microphone from capturing.
+- compat-4.4: write a failure and its cause chain, each with the frame it came from, into the session log instead of only the outermost message, because a wrapped `USBMUX read failed` hid the reason that a unit without adb is the only place it is recorded.
 
 # DiPlay 0.2.12 — 2026-10-04
 

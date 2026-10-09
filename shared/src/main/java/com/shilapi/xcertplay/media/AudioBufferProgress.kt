@@ -15,7 +15,13 @@ internal class AudioBufferProgress(private val frameBytes: Int) {
         return (writtenBytes - playedFrames * frameBytes).coerceAtLeast(0)
     }
 
+    /**
+     * Starved once the residual falls within [floorBytes]. An exact-zero test never fires on a unit
+     * whose estimate sits a little above the head, so every following starvation window produced
+     * repeated underruns instead of one clean rebuffer.
+     */
     fun shouldRebuffer(isMedia: Boolean, playing: Boolean, underrunSinceStart: Boolean,
-        compressedQueueEmpty: Boolean, rawHead: Int): Boolean =
-        isMedia && playing && underrunSinceStart && compressedQueueEmpty && queuedBytes(rawHead) == 0L
+        compressedQueueEmpty: Boolean, rawHead: Int, floorBytes: Long): Boolean =
+        isMedia && playing && underrunSinceStart && compressedQueueEmpty &&
+            queuedBytes(rawHead) <= floorBytes
 }

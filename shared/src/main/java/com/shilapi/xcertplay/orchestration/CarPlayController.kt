@@ -3050,9 +3050,7 @@ class CarPlayController(
     private fun debugLog(message: String, error: Throwable) {
         Log.w(IphoneCarPlayConfiguration.TAG, message, error)
         try {
-            uiListener?.onDebugLog(
-                "$message: ${error.message ?: error.javaClass.simpleName}",
-            )
+            uiListener?.onDebugLog("$message: ${describeThrowable(error)}")
         } catch (callbackError: Exception) {
             Log.w(IphoneCarPlayConfiguration.TAG, "debug log callback failed", callbackError)
         }
@@ -3153,4 +3151,28 @@ class CarPlayController(
         private const val ADAPTER_ADDRESS_PLACEHOLDER = "02:00:00:00:00:00"
         private val BLUETOOTH_ADDRESS = Regex("^[0-9A-Fa-f]{2}(:[0-9A-Fa-f]{2}){5}$")
     }
+}
+
+/**
+ * Renders a throwable and its cause chain with the top frame of each, so a wrapped failure (a
+ * "USBMUX read failed" hiding the real reason) can be diagnosed from the session log alone, which
+ * is all a head unit without adb can give. Bounded in depth; the redactor still runs on the result.
+ */
+internal fun describeThrowable(error: Throwable): String {
+    val builder = StringBuilder()
+    var current: Throwable? = error
+    var depth = 0
+    while (current != null && depth < 5) {
+        if (depth > 0) builder.append(" <- ")
+        builder.append(current.javaClass.simpleName)
+        current.message?.let { builder.append(": ").append(it) }
+        current.stackTrace.firstOrNull()?.let { frame ->
+            builder.append(" @ ").append(frame.className.substringAfterLast('.'))
+                .append('.').append(frame.methodName)
+                .append('(').append(frame.fileName).append(':').append(frame.lineNumber).append(')')
+        }
+        current = current.cause
+        depth++
+    }
+    return builder.toString()
 }

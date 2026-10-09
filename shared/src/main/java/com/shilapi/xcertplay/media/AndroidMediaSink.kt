@@ -366,6 +366,13 @@ class AndroidMediaSink(
             manager.mode = AudioManager.MODE_IN_COMMUNICATION
             communicationModeStream = id
             Log.i("xcertplay-usb", "audio mode $savedAudioMode -> ${manager.mode} for telephony stream=$id")
+            // The report, not just logcat: a head unit left in the voice path plays no media, and
+            // that cannot be diagnosed from a car without adb. A failing report must not disturb the
+            // mode, so it is the last thing done and it cannot throw out of here.
+            runCatching {
+                onAudioDiagnostic("Audio: mode entered communication from=$savedAudioMode" +
+                    " now=${manager.mode} stream=$id")
+            }
         }
     }
 
@@ -375,12 +382,19 @@ class AndroidMediaSink(
             val active = communicationModeStream ?: return
             if (id != null && id != active) return
             communicationModeStream = null
-            try {
+            // The report is built inside the try but sent outside it: reporting from in there would
+            // let a failing callback be caught as a failed restore.
+            val line = try {
                 manager.mode = savedAudioMode
                 Log.i("xcertplay-usb", "audio mode restored to ${manager.mode}")
+                "Audio: mode restored requested=$savedAudioMode now=${manager.mode} stream=$active"
             } catch (error: RuntimeException) {
                 Log.w("xcertplay-usb", "could not restore audio mode $savedAudioMode", error)
+                val currentMode = runCatching { manager.mode.toString() }.getOrDefault("unknown")
+                "Audio: mode restore failed requested=$savedAudioMode now=$currentMode" +
+                    " error=${error.javaClass.simpleName}"
             }
+            runCatching { onAudioDiagnostic(line) }
         }
     }
 
@@ -1565,12 +1579,17 @@ private class AudioRenderer(
     private fun maintainPlaybackBuffer() {
         val track = track ?: return
         if (bufferProgress.shouldRebuffer(mappedChannel == AudioChannel.MEDIA, playbackStarted,
-                track.underrunCountCompat > underrunsAtPlaybackStart, queue.isEmpty(), track.playbackHeadPosition)) {
-            // The hardware buffer has actually drained. Pause without flushing or discarding PCM,
-            // then use the configured start threshold again when music resumes.
+                track.underrunCountCompat > underrunsAtPlaybackStart, queue.isEmpty(),
+                track.playbackHeadPosition, startThresholdBytes / 2L)) {
+            // The hardware buffer has starved below the recovery floor. Pause without flushing or
+            // discarding PCM, then use the configured start threshold again when music resumes.
             track.pause()
             playbackStarted = false
-            prebufferBytes = 0
+            // Pausing retains queued PCM. Count it toward the restart threshold so a blocking write
+            // cannot fill the paused track before we call play().
+            prebufferBytes = bufferProgress.queuedBytes(track.playbackHeadPosition)
+                .coerceAtMost(startThresholdBytes.toLong()).toInt()
+            lastPcmWriteNs = System.nanoTime()
             rebufferCount++
         }
         // A short final burst may never reach the start threshold. Play it after a bounded wait.

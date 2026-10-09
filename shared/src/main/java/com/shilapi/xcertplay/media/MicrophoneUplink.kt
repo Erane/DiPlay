@@ -31,11 +31,19 @@ internal class MicrophoneUplink(
     private val config: MicrophoneConfig,
     private val onDiagnostic: (String) -> Unit = {},
     private val bindAddress: java.net.InetAddress? = null,
+    private val opusEncoderFactory: (Int) -> MicrophoneOpusEncoder? = { bitrate ->
+        MicrophoneOpusEncoders.create(
+            bitrate = bitrate,
+            software = { value ->
+                SoftwareOpusEncoder(value, onError = { message, error -> Log.w(TAG, message, error) })
+            },
+        )
+    },
 ) : Closeable {
     private val running = AtomicBoolean(false)
     private val stats = MicrophoneCaptureStats(config, report = { message ->
         Log.i(TAG, message)
-        onDiagnostic(message)
+        runCatching { onDiagnostic(message) }
     })
     @Volatile private var recorder: AudioRecord? = null
     @Volatile private var socket: DatagramSocket? = null
@@ -69,12 +77,7 @@ internal class MicrophoneUplink(
             else -> MediaRecorder.AudioSource.MIC
         }
         val nextEncoder = if (config.codec == AudioCodecKind.OPUS) {
-            MicrophoneOpusEncoders.create(
-                bitrate = config.bitrate ?: 48_000,
-                software = { bitrate ->
-                    SoftwareOpusEncoder(bitrate, onError = { message, error -> Log.w(TAG, message, error) })
-                },
-            )
+            opusEncoderFactory(config.bitrate ?: 48_000)
         } else {
             null
         }
@@ -88,7 +91,8 @@ internal class MicrophoneUplink(
             val message = "Microphone: encoder type=${config.audioType} codec=OPUS " +
                 "implementation=${nextEncoder.implementation}"
             Log.i(TAG, message)
-            onDiagnostic(message)
+            // A head unit whose report destination is unavailable still has to capture the microphone.
+            runCatching { onDiagnostic(message) }
         }
         val bufferSize = maxOf(minBuffer * 2, config.frameBytes * 4)
         val nextRecorder = try {
