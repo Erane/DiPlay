@@ -2,6 +2,13 @@
 
 Add changes after 0.2.12 here.
 
+- compat-4.4: play iPhone navigation and alert voice on Android 4.4 by decoding the Opus alt-audio streams with vendored Concentus, because MediaCodec has no Opus decoder before Android 5.0.
+- compat-4.4: keep the audio renderer alive when the ROM lacks a platform class, and report the real Bluetooth `IOException` text plus a plain-language recovery hint when the iPhone refuses every RFCOMM channel.
+- compat-4.4: lower the music while navigation guidance is speaking and restore it after, judged from the PCM written rather than packet arrival, with a Home-screen switch to turn it off.
+- compat-4.4: wake the Bluetooth RFCOMM reader as soon as the consumer frees pending space, because it parks without a timeout at the 64 KiB limit and the link stalled permanently; a socket whose streams the ROM hands back null or throwing now fails as an `IOException` on the thread that opened it, so the next transport mode is tried instead of the reader dying.
+- compat-4.4: send the microphone as Opus on 4.4 by encoding with the vendored Concentus library when the platform has no MediaCodec Opus encoder, and name the encoder implementation in the diagnostic report for each microphone stream.
+- compat-4.4: keep the Bluetooth bootstrap as the session's iAP2 control channel when the tunnel never arrives, and stop the wireless control loop from expiring after five minutes, because that ended NowPlaying and lyric updates for the rest of the run; the bootstrap is released as soon as the tunnel takes over. A dashboard write that reports `-2147482648` counts as success, as some BYD units return it while working.
+
 # DiPlay 0.2.12 — 2026-10-04
 
 - Add Existing Wi-Fi / Same LAN wireless CarPlay with scoped IPv4/IPv6 discovery and network-change cleanup (#223).
