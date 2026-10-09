@@ -2,7 +2,9 @@ package com.shilapi.xcertplay
 
 import android.media.AudioAttributes
 import android.media.AudioFormat
+import android.media.AudioManager
 import android.media.AudioTrack
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
@@ -40,7 +42,9 @@ internal class AudioChannelPreview(private val onUnavailable: (Int) -> Unit) : C
                 )
                 check(minimum > 0) { "No PCM output buffer is available" }
                 val bufferBytes = maxOf(minimum, SAMPLE_RATE / 10 * 2)
-                val built = if (channel == 0) {
+                // AudioTrack.Builder is API 23 and AudioAttributes is API 21, so on 4.x the preview
+                // has to use the legacy stream-type constructor, the same one playback uses.
+                val built = if (channel == 0 && Build.VERSION.SDK_INT >= 23) {
                     AudioTrack.Builder()
                         .setAudioAttributes(
                             AudioAttributes.Builder()
@@ -63,7 +67,8 @@ internal class AudioChannelPreview(private val onUnavailable: (Int) -> Unit) : C
                 } else {
                     // Match playback and let the head unit handle vendor-specific stream types.
                     @Suppress("DEPRECATION")
-                    AudioTrack(channel, SAMPLE_RATE, AudioFormat.CHANNEL_OUT_MONO,
+                    AudioTrack(if (channel == 0) AudioManager.STREAM_MUSIC else channel,
+                        SAMPLE_RATE, AudioFormat.CHANNEL_OUT_MONO,
                         AudioFormat.ENCODING_PCM_16BIT, bufferBytes, AudioTrack.MODE_STREAM)
                 }
                 track = built

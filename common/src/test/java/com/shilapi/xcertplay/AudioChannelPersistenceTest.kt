@@ -79,4 +79,13 @@ class AudioChannelPersistenceTest {
         AirPlayPersistence.saveNavigationStreamType(context, 21)
         assertEquals(0, AirPlayPersistence.loadNavigationAudioChannel(context))
     }
+
+    @Test fun navigationDuckDefaultsOnAndKeepsTheSavedChoice() {
+        // Unlike audio focus, which head units handle badly, ducking is the behaviour users expect.
+        assertEquals(true, AirPlayPersistence.loadNavigationDuckEnabled(context))
+        AirPlayPersistence.saveNavigationDuckEnabled(context, false)
+        assertEquals(false, AirPlayPersistence.loadNavigationDuckEnabled(context))
+        AirPlayPersistence.saveNavigationDuckEnabled(context, true)
+        assertEquals(true, AirPlayPersistence.loadNavigationDuckEnabled(context))
+    }
 }

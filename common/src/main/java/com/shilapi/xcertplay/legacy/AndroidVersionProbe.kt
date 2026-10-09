@@ -94,13 +94,14 @@ object AndroidVersionProbe {
         }
     }
 
-    /** One short sentence for the home screen; points to the full check in 诊断信息. */
+    /** One short sentence for the home screen; points to the full check on the self-test screen. */
     fun summaryLine(): String {
         val sdk = Build.VERSION.SDK_INT
         val detected = androidVersionForApi(sdk)
         val mismatch = isAdvertisedMismatching(sdk, Build.VERSION.RELEASE ?: "?", Build.FINGERPRINT ?: "")
         return if (mismatch) {
-            "⚠ 版本异常：标称 Android ${Build.VERSION.RELEASE}，检测实为 $detected (API $sdk)。点【诊断信息】看详情。"
+            "⚠ 版本异常：标称 Android ${Build.VERSION.RELEASE}，检测实为 $detected (API $sdk)。" +
+                "点【兼容性自检】看详情。"
         } else {
             "系统版本：$detected (API $sdk)，标称与检测一致。"
         }

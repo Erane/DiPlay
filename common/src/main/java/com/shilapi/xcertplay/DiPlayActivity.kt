@@ -559,6 +559,7 @@ class DiPlayActivity : ComponentActivity() {
         }
         section(content, getString(R.string.audio_routing)) { card ->
             toggle(card, getString(R.string.contrib_audio_home_toggle_audio_focus), getString(R.string.contrib_audio_home_toggle_audio_focus_desc), AirPlayPersistence.loadAudioFocusEnabled(this)) { AirPlayPersistence.saveAudioFocusEnabled(this, it) }
+            toggle(card, getString(R.string.contrib_audio_home_toggle_navigation_duck), getString(R.string.contrib_audio_home_toggle_navigation_duck_desc), AirPlayPersistence.loadNavigationDuckEnabled(this)) { AirPlayPersistence.saveNavigationDuckEnabled(this, it) }
             if (resources.getBoolean(R.bool.config_advanced_audio_channel_mapping)) {
                 toggle(card, getString(R.string.advanced_audio_channel_mapping),
                     getString(R.string.use_usage_content_type_routing_instead_of_stream_type),

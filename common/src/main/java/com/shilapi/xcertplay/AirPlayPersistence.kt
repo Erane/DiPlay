@@ -44,6 +44,7 @@ object AirPlayPersistence {
     private const val KEY_HEVC_SOFTWARE_DECODER = "hevc_software_decoder"
     private const val KEY_ADVANCED_AUDIO_CHANNEL_MAPPING = "advanced_audio_channel_mapping"
     private const val KEY_AUDIO_FOCUS_ENABLED = "audio_focus_enabled"
+    private const val KEY_NAVIGATION_DUCK_ENABLED = "navigation_duck_enabled"
     private const val KEY_MEDIA_AUDIO_CHANNEL = "media_audio_channel"
     private const val KEY_NAVIGATION_AUDIO_CHANNEL = "navigation_audio_channel"
     private const val KEY_NAVIGATION_STREAM_TYPE = "navigation_stream_type"
@@ -122,6 +123,15 @@ object AirPlayPersistence {
                 percent.coerceIn(CarPlayDisplayScale.MIN_PERCENT, CarPlayDisplayScale.MAX_PERCENT),
             ).apply()
     }
+
+    fun loadLegacyDebugOverlayVisible(context: Context): Boolean =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getBoolean("legacy_debug_overlay_visible", true)
+
+    fun saveLegacyDebugOverlayVisible(context: Context, visible: Boolean) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+            .putBoolean("legacy_debug_overlay_visible", visible).apply()
+    }
     /** Applied by the CarPlay host so overlay position/size updates without reconnecting. */
     @Volatile var overlaySettingsListener: (() -> Unit)? = null
 
@@ -198,6 +208,17 @@ object AirPlayPersistence {
     fun saveAudioFocusEnabled(context: Context, enabled: Boolean) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
             .putBoolean(KEY_AUDIO_FOCUS_ENABLED, enabled)
+            .apply()
+    }
+
+    /** On unless the driver turns it off: guidance over lowered music is what CarPlay users expect. */
+    fun loadNavigationDuckEnabled(context: Context): Boolean =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getBoolean(KEY_NAVIGATION_DUCK_ENABLED, true)
+
+    fun saveNavigationDuckEnabled(context: Context, enabled: Boolean) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+            .putBoolean(KEY_NAVIGATION_DUCK_ENABLED, enabled)
             .apply()
     }
 

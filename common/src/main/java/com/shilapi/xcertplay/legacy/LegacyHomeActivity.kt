@@ -59,6 +59,10 @@ class LegacyHomeActivity : Activity() {
         root.addView(button("无线（车机热点模式）") {
             showWirelessDialog()
         })
+        root.addView(button("兼容性自检（安卓版本 / 蓝牙能力）") {
+            startActivity(Intent(this, LegacyCompatCheckActivity::class.java))
+        })
+        root.addView(navigationDuckToggle())
         root.addView(button("诊断信息") {
             startActivity(Intent(this, com.shilapi.xcertplay.DiPlayProbeActivity::class.java))
         })
@@ -88,6 +92,29 @@ class LegacyHomeActivity : Activity() {
             setPadding(0, pad * 2, 0, 0)
         })
         setContentView(root)
+    }
+
+    /**
+     * The legacy home has no settings screen, so the one audio control worth changing on 4.4 is a
+     * button that shows and flips its own state. The sink reads the value when a session starts.
+     */
+    private fun navigationDuckToggle(): Button {
+        val control = Button(this)
+        fun paint() {
+            val enabled = com.shilapi.xcertplay.AirPlayPersistence
+                .loadNavigationDuckEnabled(this@LegacyHomeActivity)
+            control.text = "导航播报压低音乐：" + (if (enabled) "开" else "关") + "（重连后生效）"
+        }
+        paint()
+        control.setOnClickListener {
+            val enabled = com.shilapi.xcertplay.AirPlayPersistence
+                .loadNavigationDuckEnabled(this@LegacyHomeActivity)
+            com.shilapi.xcertplay.AirPlayPersistence.saveNavigationDuckEnabled(
+                this@LegacyHomeActivity, !enabled,
+            )
+            paint()
+        }
+        return control
     }
 
     private fun diagnosticText(): String = buildString {

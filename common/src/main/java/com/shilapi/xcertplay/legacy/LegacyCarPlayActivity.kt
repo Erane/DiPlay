@@ -15,6 +15,7 @@ import android.view.MotionEvent
 import android.view.Surface
 import android.view.SurfaceHolder
 import android.view.SurfaceView
+import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
 import android.widget.FrameLayout
@@ -75,6 +76,8 @@ class LegacyCarPlayActivity : Activity() {
     private lateinit var statusView: TextView
     private lateinit var btStatusView: TextView
     private lateinit var logView: TextView
+    private lateinit var debugToggleButton: Button
+    private var debugOverlayVisible = true
     private lateinit var surfaceView: SurfaceView
     private var latestSurface: Surface? = null
     private var videoWidth = 0
@@ -131,6 +134,8 @@ class LegacyCarPlayActivity : Activity() {
             }
             addView(controlButton("重新连接") { manualReconnect() })
             addView(controlButton("重启蓝牙") { bounceBluetooth() })
+            debugToggleButton = controlButton("隐藏调试") { setDebugOverlayVisible(!debugOverlayVisible) }
+            addView(debugToggleButton)
         }
         val overlay = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -149,6 +154,8 @@ class LegacyCarPlayActivity : Activity() {
                 Gravity.BOTTOM))
         }
         setContentView(root)
+        debugOverlayVisible = AirPlayPersistence.loadLegacyDebugOverlayVisible(this)
+        applyDebugOverlayVisibility()
         mainHandler.post(object : Runnable {
             override fun run() {
                 updateBtStatus()
@@ -309,6 +316,12 @@ class LegacyCarPlayActivity : Activity() {
         val wireless = intent.getBooleanExtra(EXTRA_WIRELESS, false)
         if (!wireless) {
             val consent = CarPlayVpnService.prepare(this)
+            CarPlayVpnService.prepareError?.let { error ->
+                appendLog(
+                    "VPN 授权检查在这台车机上不可用(${error.javaClass.simpleName})，" +
+                        "继续尝试建立隧道，由 establish 判定权限",
+                )
+            }
             if (consent != null) {
                 setStatus("请在弹窗中允许 VPN 连接（CarPlay 网络需要）")
                 startActivityForResult(consent, VPN_REQUEST)
@@ -340,6 +353,7 @@ class LegacyCarPlayActivity : Activity() {
             preferSoftwareHevcDecoder = false,
             advancedAudioChannelMapping = false,
             audioFocusEnabled = AirPlayPersistence.loadAudioFocusEnabled(this),
+            navigationDuckEnabled = AirPlayPersistence.loadNavigationDuckEnabled(this),
             mediaChannel = AirPlayPersistence.loadMediaAudioChannel(this),
             navigationChannel = AirPlayPersistence.loadNavigationAudioChannel(this),
             context = this,
@@ -738,6 +752,20 @@ class LegacyCarPlayActivity : Activity() {
             val bonded = runCatching { adapter?.bondedDevices?.size ?: 0 }.getOrDefault(0)
             btStatusView.text = "蓝牙: $state | 已配对设备: $bonded"
         }
+    }
+
+    /** Hides the on-screen debug block only; appendLog keeps writing the file log either way. */
+    private fun setDebugOverlayVisible(visible: Boolean) {
+        debugOverlayVisible = visible
+        AirPlayPersistence.saveLegacyDebugOverlayVisible(this, visible)
+        applyDebugOverlayVisibility()
+    }
+
+    private fun applyDebugOverlayVisibility() {
+        val visibility = if (debugOverlayVisible) View.VISIBLE else View.GONE
+        logView.visibility = visibility
+        btStatusView.visibility = visibility
+        debugToggleButton.text = if (debugOverlayVisible) "隐藏调试" else "显示调试"
     }
 
     private fun setStatus(text: String) {

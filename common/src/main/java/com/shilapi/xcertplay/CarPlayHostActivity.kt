@@ -477,6 +477,18 @@ class CarPlayHostActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // This host shares the USB_DEVICE_ATTACHED filter with LegacyCarPlayActivity, so a cable
+        // attach can resolve here on a 4.x unit and bypass LegacyRouterActivity's version gate.
+        // Everything below links against API-21 window-insets classes — androidx.core 1.19 removed
+        // its pre-21 fallbacks, so setContentView here is a fatal NoClassDefFoundError.
+        if (Build.VERSION.SDK_INT < 21) {
+            startActivity(
+                Intent(this, com.shilapi.xcertplay.legacy.LegacyCarPlayActivity::class.java)
+                    .setAction(intent.action),
+            )
+            finish()
+            return
+        }
         NavigationWidgetUpdater.attach(applicationContext)
         CenterMapOverlay.requestShow = ::showCenterMap
         MapMirrors.sink = mirrorSink
@@ -632,6 +644,9 @@ class CarPlayHostActivity : ComponentActivity() {
 
     private fun requestVpnConsent() {
         val consent = CarPlayVpnService.prepare(this)
+        CarPlayVpnService.prepareError?.let { error ->
+            appendLog("VPN 授权检查不可用(${error.javaClass.simpleName})，由 establish 判定权限")
+        }
         if (consent == null) {
             vpnReady = true
             maybeStartCarPlay()
@@ -3555,6 +3570,7 @@ class CarPlayHostActivity : ComponentActivity() {
             preferSoftwareHevcDecoder = hevcSoftwareDecoderEnabled,
             advancedAudioChannelMapping = advancedAudioChannelMapping,
             audioFocusEnabled = AirPlayPersistence.loadAudioFocusEnabled(this),
+            navigationDuckEnabled = AirPlayPersistence.loadNavigationDuckEnabled(this),
             mediaChannel = AirPlayPersistence.loadMediaAudioChannel(this),
             navigationChannel = AirPlayPersistence.loadNavigationAudioChannel(this),
             context = this,
