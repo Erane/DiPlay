@@ -582,8 +582,13 @@ private class VideoDecoder(
                     referenceChain.reset()
                     requestKeyFrameIfDue()
                 } catch (error: LinkageError) {
-                    if (running) reportFailure("stage=${job?.javaClass?.simpleName ?: "drain"}", error)
-                    throw error
+                    val context = "stage=${job?.javaClass?.simpleName ?: "drain"}"
+                    if (running) reportFailure(context, error)
+                    // A class this ROM cannot link fails identically on every later job, so the worker
+                    // ends here: the video path is already reported as failed, and rethrowing only added
+                    // a process death — and a phone holding a session it then refuses to reopen — on top.
+                    if (running) Log.e(TAG, "video decoder cannot link $context", error)
+                    return
                 }
             }
         } catch (_: InterruptedException) {

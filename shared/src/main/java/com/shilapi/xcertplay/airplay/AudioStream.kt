@@ -171,6 +171,18 @@ class AudioStream(
                 listener.onRtp(rtp, sample)
                 stats.processed()
             }
+        } catch (error: LinkageError) {
+            // First use of a decrypt or sink class this ROM lacks. Ending this stream is the bounded
+            // outcome: letting it reach the process handler would end the whole session and leave the
+            // iPhone holding a CarPlay record it then refuses to reopen.
+            android.util.Log.e(
+                TAG,
+                "audio stream type=$streamType stopped on an unsupported platform API",
+                error,
+            )
+            onDiagnostic(
+                "audio stream type=$streamType linkage failure=${error.javaClass.simpleName}",
+            )
         } finally { stats.flush(ended = true) }
     }
 

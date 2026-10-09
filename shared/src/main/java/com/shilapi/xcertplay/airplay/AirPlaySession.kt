@@ -503,6 +503,11 @@ class AirPlaySession(
         } catch (error: Exception) {
             closeReason = "control I/O failed: ${error.message ?: error.javaClass.simpleName}"
             if (!closed.get()) Log.e(TAG, "airplay $closeReason", error)
+        } catch (error: LinkageError) {
+            // A class this ROM cannot link is not a transient fault: every later request would fail the
+            // same way, so the session ends here instead of the error escaping to the process handler.
+            closeReason = "unsupported platform API: ${error.message ?: error.javaClass.simpleName}"
+            Log.e(TAG, "airplay $closeReason", error)
         } finally {
             debugLog("airplay control closing reason=$closeReason activeStreams=$activeStreams")
             close()
