@@ -49,18 +49,11 @@ class NcmUsbBridge internal constructor(
     // section for the whole wait, which blocks ART's GC thread flip and, with it, every other USB
     // transfer (seen as ~0.8 s stalls of video and audio). A timed-out request stays queued, so no
     // data is lost between calls. This is the only requestWait() user on this connection.
-    private val directReadBuffer = ByteBuffer.allocateDirect(
-        // Android 8.0/8.1 throw rather than return false when a queued buffer passes the 16 KiB
-        // usbfs ceiling, so the async read must stay under it below API 28.
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) {
-            minOf(READ_CHUNK_BYTES, USBFS_BULK_URB_CEILING_BYTES)
-        } else {
-            READ_CHUNK_BYTES
-        },
-    )
+    private val directReadBuffer = ByteBuffer.allocateDirect(READ_CHUNK_BYTES)
     private var readRequest: UsbRequest? = null
     private var readQueued = false
     private var loggedReadPath = false
+    private val readQueuePolicy = UsbReadQueuePolicy.forCurrentPlatform()
     private val statusRunning = AtomicBoolean(statusEndpoint != null)
     private val statusThread = statusEndpoint?.let { endpoint ->
         Thread({ drainStatus(endpoint) }, "ncm-status-in").apply {
@@ -252,7 +245,7 @@ class NcmUsbBridge internal constructor(
                 inEndpoint, readBuffer, BULK_READ_BYTES, timeoutMillis.coerceAtLeast(1).toInt(),
             ).takeIf { it > 0 }
         }
-        logReadPathOnce("async-request", directReadBuffer.capacity())
+        var acceptedFallback: UsbReadQueueResult? = null
         val request = try {
             // Publish and queue atomically with close(), so detach cannot miss a new request.
             synchronized(stateLock) {
@@ -266,13 +259,30 @@ class NcmUsbBridge internal constructor(
                 }
                 if (!readQueued) {
                     directReadBuffer.clear()
-                    if (!current.queue(directReadBuffer)) throw failSession("Android could not queue the NCM read request")
+                    val queued = readQueuePolicy.queue(directReadBuffer, ::checkOpenLocked) { current.queue(it) }
+                    if (!queued.queued) throw failSession(
+                        "Android could not queue the NCM read request (api=${Build.VERSION.SDK_INT} " +
+                            "endpoint=${describeUsbEndpoint(inEndpoint)} firstBytes=${queued.firstBytes} " +
+                            "fallbackBytes=${queued.fallbackBytes ?: "not_attempted"})",
+                    )
                     readQueued = true
+                    logReadPathOnce("async-request", queued.firstBytes)
+                    acceptedFallback = queued.takeIf { it.fallbackBytes != null }
                 }
                 current
             }
         } catch (error: RuntimeException) {
             throw failSession("NCM read failed", error)
+        }
+        // Emit outside stateLock: a diagnostic callback must not affect queue or close behaviour.
+        acceptedFallback?.let { queued ->
+            runCatching {
+                onDiagnostic(
+                    "NCM read queue compatibility fallback api=${Build.VERSION.SDK_INT} " +
+                        "endpoint=${describeUsbEndpoint(inEndpoint)} firstBytes=${queued.firstBytes} " +
+                        "fallbackBytes=${queued.fallbackBytes}",
+                )
+            }
         }
         try {
             val completed = try {

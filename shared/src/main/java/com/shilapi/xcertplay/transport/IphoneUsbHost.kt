@@ -365,6 +365,7 @@ class Iap2UsbSession internal constructor(
     private var failure: IphoneUsbException? = null
     private var pendingRead: UsbRequest? = null
     private var loggedReadPath = false
+    private val readQueuePolicy = UsbReadQueuePolicy.forCurrentPlatform()
     private val bulkReadBuffer = ByteArray(USBMUX_READ_CHUNK_BYTES)
 
     fun write(data: ByteArray, timeoutMillis: Int) = synchronized(writeLock) {
@@ -396,20 +397,29 @@ class Iap2UsbSession internal constructor(
                 )
             }
             initialized = true
-            synchronized(stateLock) {
+            val buffer = ByteBuffer.allocateDirect(USBMUX_READ_CHUNK_BYTES)
+            // Publish and queue under one lock so close() cannot miss a request already in flight.
+            val queueResult = synchronized(stateLock) {
                 checkOpenLocked()
                 pendingRead = request
+                readQueuePolicy.queue(buffer, ::checkOpenLocked) { request.queue(it) }
             }
-            val buffer = ByteBuffer.allocateDirect(
-                // Android 8.0/8.1 throw instead of returning false when a queued buffer exceeds the
-                // 16 KiB usbfs ceiling, so a large read is fatal there rather than merely short.
-                if (Build.VERSION.SDK_INT < 28) USBFS_BULK_URB_CEILING_BYTES else USBMUX_READ_CHUNK_BYTES,
-            )
-            logReadPathOnce("async-request", buffer.capacity())
-            if (!request.queue(buffer)) {
+            logReadPathOnce("async-request", queueResult.firstBytes)
+            if (!queueResult.queued) {
                 throw IphoneUsbException.DeviceUnavailable(
-                    "Android could not queue USBMUX read request (${requestDiagnostics(timeoutMillis, buffer.capacity())})",
+                    "Android could not queue USBMUX read request (${requestDiagnostics(timeoutMillis, queueResult.firstBytes)} " +
+                        "fallbackBytes=${queueResult.fallbackBytes ?: "not_attempted"})",
                 )
+            }
+            // The policy caches an accepted size, so this event occurs at most once per pipe.
+            queueResult.fallbackBytes?.let { fallback ->
+                runCatching {
+                    onDiagnostic(
+                        "USBMUX read queue compatibility fallback api=${Build.VERSION.SDK_INT} " +
+                            "endpoint=${describeUsbEndpoint(inEndpoint)} firstBytes=${queueResult.firstBytes} " +
+                            "fallbackBytes=$fallback",
+                    )
+                }
             }
             val completed = try {
                 connection.requestWait(timeoutMillis)
