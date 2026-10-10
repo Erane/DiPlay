@@ -48,12 +48,14 @@ class NcmUsbBridge internal constructor(
     // Bulk IN uses one persistent async request: bulkTransfer() pins its byte[] in a JNI critical
     // section for the whole wait, which blocks ART's GC thread flip and, with it, every other USB
     // transfer (seen as ~0.8 s stalls of video and audio). A timed-out request stays queued, so no
-    // data is lost between calls. This is the only requestWait() user on this connection.
+    // data is lost between calls. Below API 26 that wait is blocking, so UsbRequestQueue's helper
+    // thread is the only requestWait() user on this connection.
     private val directReadBuffer = ByteBuffer.allocateDirect(READ_CHUNK_BYTES)
     private var readRequest: UsbRequest? = null
     private var readQueued = false
     private var loggedReadPath = false
     private val readQueuePolicy = UsbReadQueuePolicy.forCurrentPlatform()
+    private val readRequests = UsbRequestQueue(connection, "ncm-read-reaper")
     private val statusRunning = AtomicBoolean(statusEndpoint != null)
     private val statusThread = statusEndpoint?.let { endpoint ->
         Thread({ drainStatus(endpoint) }, "ncm-status-in").apply {
@@ -140,6 +142,7 @@ class NcmUsbBridge internal constructor(
                 // Best-effort release; the connection close below is authoritative.
             }
         }
+        readRequests.close()
         connection.close()
         runCatching { requestToClose?.close() }
     }
@@ -236,8 +239,9 @@ class NcmUsbBridge internal constructor(
 
     private fun readChunk(timeoutMillis: Long): Int? {
         checkOpen()
-        if (Build.VERSION.SDK_INT < 26) {
-            // queue(ByteBuffer)/requestWait(timeout) are API 26; Android 6 polls synchronously.
+        if (Build.VERSION.SDK_INT < 21) {
+            // The async shape needs a helper thread to put a timeout on a blocking requestWait(),
+            // and that is only taken from API 21 up; Android 4.x polls synchronously instead.
             // A null means "nothing this round" — the CarPlay TCP stream and the USBMUX keepalive
             // write path own authoritative error detection, exactly as on the async path.
             logReadPathOnce("bulk-transfer", BULK_READ_BYTES)
@@ -259,7 +263,9 @@ class NcmUsbBridge internal constructor(
                 }
                 if (!readQueued) {
                     directReadBuffer.clear()
-                    val queued = readQueuePolicy.queue(directReadBuffer, ::checkOpenLocked) { current.queue(it) }
+                    val queued = readQueuePolicy.queue(directReadBuffer, ::checkOpenLocked) {
+                        readRequests.queue(current, it)
+                    }
                     if (!queued.queued) throw failSession(
                         "Android could not queue the NCM read request (api=${Build.VERSION.SDK_INT} " +
                             "endpoint=${describeUsbEndpoint(inEndpoint)} firstBytes=${queued.firstBytes} " +
@@ -286,7 +292,7 @@ class NcmUsbBridge internal constructor(
         }
         try {
             val completed = try {
-                connection.requestWait(timeoutMillis.coerceAtLeast(1))
+                readRequests.await(timeoutMillis.coerceAtLeast(1))
             } catch (_: TimeoutException) {
                 // Nothing arrived yet; the request stays queued for the next call. USBMUX owns
                 // authoritative detach/failure detection for the same phone.

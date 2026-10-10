@@ -366,6 +366,7 @@ class Iap2UsbSession internal constructor(
     private var pendingRead: UsbRequest? = null
     private var loggedReadPath = false
     private val readQueuePolicy = UsbReadQueuePolicy.forCurrentPlatform()
+    private val requests = UsbRequestQueue(connection, "usbmux-read-reaper")
     private val bulkReadBuffer = ByteArray(USBMUX_READ_CHUNK_BYTES)
 
     fun write(data: ByteArray, timeoutMillis: Int) = synchronized(writeLock) {
@@ -384,7 +385,7 @@ class Iap2UsbSession internal constructor(
     fun read(timeoutMillis: Long): ByteArray? = synchronized(readLock) {
         checkOpen()
         require(timeoutMillis > 0) { "timeoutMillis must be positive" }
-        if (Build.VERSION.SDK_INT < 26) {
+        if (Build.VERSION.SDK_INT < 21) {
             logReadPathOnce("bulk-transfer", minOf(bulkReadBuffer.size, USBFS_BULK_URB_CEILING_BYTES))
             return@synchronized readBulkCompat(timeoutMillis)
         }
@@ -402,7 +403,7 @@ class Iap2UsbSession internal constructor(
             val queueResult = synchronized(stateLock) {
                 checkOpenLocked()
                 pendingRead = request
-                readQueuePolicy.queue(buffer, ::checkOpenLocked) { request.queue(it) }
+                readQueuePolicy.queue(buffer, ::checkOpenLocked) { requests.queue(request, it) }
             }
             logReadPathOnce("async-request", queueResult.firstBytes)
             if (!queueResult.queued) {
@@ -422,7 +423,7 @@ class Iap2UsbSession internal constructor(
                 }
             }
             val completed = try {
-                connection.requestWait(timeoutMillis)
+                requests.await(timeoutMillis)
             } catch (_: TimeoutException) {
                 drainCancelledRead(request)
                 return@synchronized null
@@ -451,8 +452,9 @@ class Iap2UsbSession internal constructor(
     }
 
     /**
-     * UsbRequest.queue(ByteBuffer) and requestWait(timeout) are API 26; Android 6 reads with the
-     * synchronous bulk transfer, which honors the same timeout. It cannot distinguish a timeout
+     * UsbRequest.queue(ByteBuffer) and requestWait(timeout) are API 26, and the async shape below
+     * 26 needs a helper thread to give a blocking requestWait() a timeout, so Android 4.x reads with
+     * the synchronous bulk transfer, which honors the same timeout. It cannot distinguish a timeout
      * from an I/O error, so both return null — authoritative detach detection stays with the
      * keepalive write path and the attach receiver.
      */
@@ -473,6 +475,7 @@ class Iap2UsbSession internal constructor(
             pendingRead
         }
         requestToCancel?.cancel()
+        requests.close()
         connection.close()
     }
 
@@ -485,14 +488,14 @@ class Iap2UsbSession internal constructor(
         if (closed) throw IphoneUsbException.DeviceUnavailable("USBMUX session is closed")
     }
 
-    /** Cancels the queued read of the timed-out async request. Async path only: API 26+. */
+    /** Cancels the queued read of the timed-out async request. Async path only: API 21+. */
     @Suppress("NewApi")
     private fun drainCancelledRead(request: UsbRequest) {
         if (!request.cancel()) {
             throw failSession("Android could not cancel timed out USBMUX read request")
         }
         val completed = try {
-            connection.requestWait(CANCEL_DRAIN_TIMEOUT_MILLIS)
+            requests.await(CANCEL_DRAIN_TIMEOUT_MILLIS)
         } catch (_: TimeoutException) {
             throw failSession("Timed out draining cancelled USBMUX read request")
         }
