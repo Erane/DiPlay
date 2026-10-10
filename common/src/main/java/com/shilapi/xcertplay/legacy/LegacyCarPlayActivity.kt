@@ -206,9 +206,33 @@ class LegacyCarPlayActivity : Activity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        // singleTask re-entry: tapping 无线 on the home screen while this instance is alive
-        // lands here. Treat it as an explicit reconnect request instead of ignoring it.
+        val attached = isUsbAttachmentIntent(intent)
+        val requested = intent.explicitTransport()
         setIntent(intent)
+        val running = sessionTransport
+        if (controller != null && !shuttingDown.get() && running != null) {
+            if (attached) {
+                // A cable is unplugged on its own schedule, and a session that has to be rebuilt costs
+                // the owner a full re-handshake. Switching routes is the home screen's job, where it is
+                // a deliberate tap on one of the two buttons.
+                appendLog("检测到 USB 设备插入，保持当前 $running 会话（要换路线请用主页的两个连接按钮）")
+                return
+            }
+            if (requested == null) {
+                // 打开 CarPlay 画面 / 查看连接进度 name no route: they ask for the picture, and the
+                // recorded choice can predate the session on screen, so following it here used to drop a
+                // working wireless session onto the wired path.
+                appendLog("主页重进未指定路线，保持当前 $running 会话")
+                setStatus(
+                    if (sessionActive) "CarPlay 正在运行"
+                    else "正在连接 iPhone…（要重试请在主页点「有线」或「无线」）",
+                )
+                return
+            }
+            // An explicit route is the owner speaking: the same route means reconnect, the other means
+            // switch, and both are worth tearing the session down for.
+            appendLog(if (requested == running) "按主页选择在本路线重连：$running" else "按主页选择切换路线：$running → $requested")
+        }
         reconnectAttempts = 0
         appendLog("手动重连: 按主页请求重新启动会话")
         setStatus("手动重连中…")
