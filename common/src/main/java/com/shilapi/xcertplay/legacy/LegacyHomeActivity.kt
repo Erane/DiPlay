@@ -395,11 +395,19 @@ class LegacyHomeActivity : Activity() {
     private fun perform(action: Action) {
         val session = Intent(this, LegacyCarPlayActivity::class.java)
         when (action) {
-            Action.OPEN_PROJECTION, Action.RECONNECT, Action.CONNECT_WIRED -> startActivity(session)
+            // An owner who tapped one of the two routes named it, so the host must not be left to
+            // infer it from the route the last session happened to use.
+            Action.CONNECT_WIRED -> {
+                session.putExtra(LegacyCarPlayActivity.EXTRA_WIRELESS, false)
+                startActivity(session)
+            }
             Action.CONNECT_WIRELESS -> {
                 session.putExtra(LegacyCarPlayActivity.EXTRA_WIRELESS, true)
                 startActivity(session)
             }
+            // Neither of these asks for a route: they mean "show me what is running", and the host
+            // answers with the session it already has rather than starting a second one.
+            Action.OPEN_PROJECTION, Action.RECONNECT -> startActivity(session)
             Action.START_WIRELESS_SETUP -> showWirelessSetup()
             Action.ENABLE_BLUETOOTH -> openBluetoothSettings()
             Action.RUN_COMPAT_CHECK -> startActivity(Intent(this, LegacyCompatCheckActivity::class.java))

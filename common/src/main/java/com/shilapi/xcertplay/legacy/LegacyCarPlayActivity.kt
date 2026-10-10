@@ -72,6 +72,7 @@ class LegacyCarPlayActivity : Activity() {
     private var reconnectScheduled = false
     private var reconnectAttempts = 0
     private var sessionActive = false
+    private var sessionTransport: CarPlayTransport? = null
     private var startPendingSurface = false
     private var awaitingVpnConsent = false
     private lateinit var statusView: TextView
@@ -338,6 +339,31 @@ class LegacyCarPlayActivity : Activity() {
         setStatus("车机无法打开 VPN 授权界面：请在车机设置中允许 DiPlay 建立 VPN 连接，或改用无线连接")
     }
 
+    /** The route this launch asks for, with the reason kept so the log can name the case. */
+    private fun decisionFor(launchIntent: Intent): LegacyTransportChoice.Decision =
+        LegacyTransportChoice.decide(
+            usbAttachment = isUsbAttachmentIntent(launchIntent),
+            explicitRequest = launchIntent.explicitTransport(),
+            persistedChoice = runCatching { AirPlayPersistence.loadLegacyTransport(this) }.getOrNull(),
+        )
+
+    /** A launch that never mentions a route reads as no request; the default is wired, so it must not. */
+    private fun Intent.explicitTransport(): CarPlayTransport? = when {
+        !hasExtra(EXTRA_WIRELESS) -> null
+        getBooleanExtra(EXTRA_WIRELESS, false) -> CarPlayTransport.WIRELESS
+        else -> CarPlayTransport.WIRED
+    }
+
+    /**
+     * Only the system's own attach intent counts as an insertion. The home screen's wired button
+     * carries no device parcel, and treating it as an insertion would let a tap outrank a session.
+     */
+    private fun isUsbAttachmentIntent(launchIntent: Intent): Boolean =
+        launchIntent.action == android.hardware.usb.UsbManager.ACTION_USB_DEVICE_ATTACHED &&
+            launchIntent.getParcelableExtra<android.hardware.usb.UsbDevice?>(
+                android.hardware.usb.UsbManager.EXTRA_DEVICE,
+            ) != null
+
     private fun startSession() {
         try {
             startSessionInternal()
@@ -356,7 +382,13 @@ class LegacyCarPlayActivity : Activity() {
         // The wired session routes AirPlay through CarPlayVpnService; consent must be granted
         // before the controller can establish the tunnel. Wireless runs over the Wi-Fi network
         // and does not need it (the Compose host gates the same way).
-        val wireless = intent.getBooleanExtra(EXTRA_WIRELESS, false)
+        val decision = decisionFor(intent)
+        val wireless = decision.transport == CarPlayTransport.WIRELESS
+        // Record the route as it is acted on, so a later launch that names nothing - the home card's
+        // 打开 CarPlay 画面 - follows this session instead of falling back to the cable.
+        AirPlayPersistence.saveLegacyTransport(this, decision.transport)
+        sessionTransport = decision.transport
+        appendLog("会话路线=${decision.transport} 来源=${decision.source}")
         if (!wireless) {
             val consent = CarPlayVpnService.prepare(this)
             CarPlayVpnService.prepareError?.let { error ->
@@ -398,7 +430,7 @@ class LegacyCarPlayActivity : Activity() {
         setStatus("启动 CarPlay 会话 ${size.first}x${size.second}…")
 
         val airPlayConfig = buildAirPlayConfig(size.first, size.second, identity, hostAddress)
-        val config = buildRuntimeConfig(identity)
+        val config = buildRuntimeConfig(identity, decision.transport)
         val renderer = AndroidMediaSink(
             surface = latestSurface,
             videoWidth = airPlayConfig.main.widthPixels,
@@ -477,9 +509,12 @@ class LegacyCarPlayActivity : Activity() {
         }
     }
 
-    private fun buildRuntimeConfig(identity: com.shilapi.xcertplay.airplay.AirPlayIdentity): CarPlayRuntimeConfig {
+    private fun buildRuntimeConfig(
+        identity: com.shilapi.xcertplay.airplay.AirPlayIdentity,
+        transport: CarPlayTransport,
+    ): CarPlayRuntimeConfig {
         val mfiTarget = AirPlayPersistence.loadMfiTarget(this)
-        val wireless = intent.getBooleanExtra(EXTRA_WIRELESS, false)
+        val wireless = transport == CarPlayTransport.WIRELESS
         if (Build.VERSION.SDK_INT >= 23 && !wireless &&
             checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED
         ) {

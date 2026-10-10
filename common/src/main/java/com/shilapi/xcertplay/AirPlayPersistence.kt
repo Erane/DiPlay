@@ -12,6 +12,7 @@ import com.shilapi.xcertplay.airplay.AirPlayIdentity
 import com.shilapi.xcertplay.airplay.PairingStore
 import com.shilapi.xcertplay.airplay.SafeAreaCodec
 import com.shilapi.xcertplay.airplay.SafeAreaRect
+import com.shilapi.xcertplay.orchestration.CarPlayTransport
 import com.shilapi.xcertplay.orchestration.ManualHotspotBand
 import com.shilapi.xcertplay.orchestration.ManualHotspotSecurity
 import com.shilapi.xcertplay.orchestration.MfiTarget
@@ -50,6 +51,7 @@ object AirPlayPersistence {
     private const val KEY_NAVIGATION_AUDIO_CHANNEL = "navigation_audio_channel"
     private const val KEY_NAVIGATION_STREAM_TYPE = "navigation_stream_type"
     private const val KEY_WIRELESS_ENABLED = "wireless_enabled"
+    private const val KEY_LEGACY_TRANSPORT = "legacy_transport"
     private const val KEY_WIRELESS_HOTSPOT_MODE = "wireless_hotspot_mode"
     private const val KEY_WIFI_P2P_PREFERRED_CHANNEL = "wifi_p2p_preferred_channel"
     private const val KEY_MANUAL_HOTSPOT_SSID = "manual_hotspot_ssid"
@@ -273,6 +275,24 @@ object AirPlayPersistence {
     fun saveWirelessEnabled(context: Context, enabled: Boolean) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
             .putBoolean(KEY_WIRELESS_ENABLED, enabled)
+            .apply()
+    }
+
+    /**
+     * The route the pre-21 host last started or was asked for, or null until the owner has chosen.
+     *
+     * Separate from [loadWirelessEnabled] on purpose: that flag is the modern home's toggle, and on a
+     * unit that can run both hosts a settings change there must not silently move the legacy cable
+     * fallback onto the wireless route, or the other way round.
+     */
+    fun loadLegacyTransport(context: Context): CarPlayTransport? =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getString(KEY_LEGACY_TRANSPORT, null)
+            ?.let { stored -> CarPlayTransport.entries.firstOrNull { it.name == stored } }
+
+    fun saveLegacyTransport(context: Context, transport: CarPlayTransport) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+            .putString(KEY_LEGACY_TRANSPORT, transport.name)
             .apply()
     }
 
