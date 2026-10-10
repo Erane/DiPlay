@@ -150,6 +150,8 @@ class LegacyHomeActivity : Activity() {
             val right = ui.column()
             right.addView(startCard(plan))
             right.addView(ui.space(ui.sectionGapDp))
+            right.addView(displayCard())
+            right.addView(ui.space(ui.sectionGapDp))
             right.addView(soundCard())
             right.addView(ui.space(ui.sectionGapDp))
             right.addView(feedbackCard())
@@ -170,6 +172,8 @@ class LegacyHomeActivity : Activity() {
             content.addView(routeCard(plan))
             content.addView(ui.space(ui.sectionGapDp))
             content.addView(startCard(plan))
+            content.addView(ui.space(ui.sectionGapDp))
+            content.addView(displayCard())
             content.addView(ui.space(ui.sectionGapDp))
             content.addView(soundCard())
             content.addView(ui.space(ui.sectionGapDp))
@@ -275,6 +279,40 @@ class LegacyHomeActivity : Activity() {
                 )
             }
         }
+    }
+
+    /**
+     * The one setting on this branch that changes how the picture feels. Nothing here can ask the
+     * decoder whether it sustains the rate — that probe is an API 21 call — so the owner decides and
+     * the session advertises it to the phone as `maxFPS` at handshake.
+     */
+    private fun displayCard(): View =
+        ui.section("画面帧率", "车机只是接收端，帧率是告诉 iPhone 每秒发多少张画面；改完要重新连接一次才生效。") { card ->
+            // One of the two is always highlighted: on a screen with no other feedback, a row set
+            // with nothing selected reads as a broken control rather than as an unstored value.
+            val smoother = AirPlayPersistence.loadFps(this@LegacyHomeActivity) == FPS_SMOOTHER
+            card.addView(
+                ui.choiceRow(
+                    "30 fps · 减轻负载",
+                    "老车机选这个。手机少发一半画面，卡顿和延迟都会明显减少。",
+                    !smoother,
+                ) { selectFps(FPS_LIGHTER) }
+            )
+            card.addView(
+                ui.choiceRow(
+                    "60 fps · 更流畅",
+                    "性能够的车机才选：滑动和地图更跟手，扛不住时会变成卡屏。",
+                    smoother,
+                ) { selectFps(FPS_SMOOTHER) }
+            )
+        }
+
+    private fun selectFps(value: Int) {
+        // Re-rendering rebuilds the whole page, which costs a slow unit real time, so a tap on the
+        // rate already in force does nothing.
+        if (AirPlayPersistence.loadFps(this) == value) return
+        AirPlayPersistence.saveFps(this, value)
+        render()
     }
 
     private fun soundCard(): View = ui.section("声音", "只影响声音，不影响能不能连上；改完重新连接一次才生效。") { card ->
@@ -468,5 +506,10 @@ class LegacyHomeActivity : Activity() {
 
     private companion object {
         const val EXPORT_TAG = "diagnostics-result"
+
+        // The two ends of the range the session may advertise; a Dalvik unit cannot probe whether it
+        // sustains the higher one, so it only gets to be asked for directly.
+        const val FPS_LIGHTER = 30
+        const val FPS_SMOOTHER = 60
     }
 }
