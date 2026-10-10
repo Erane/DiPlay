@@ -12,6 +12,7 @@ import android.view.Gravity
 import android.view.View
 import android.widget.ImageView
 import android.widget.LinearLayout
+import android.widget.ScrollView
 import android.widget.TextView
 import com.shilapi.xcertplay.AirPlayPersistence
 import com.shilapi.xcertplay.CarPlayBackgroundSession
@@ -34,6 +35,7 @@ class LegacyHomeActivity : Activity() {
     private val ui by lazy { LegacyStyle(this) }
     private var lastFailure: String? = null
     private var renderedOnce = false
+    private var page: ScrollView? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         ui.applyWindowTheme(this)
@@ -125,6 +127,9 @@ class LegacyHomeActivity : Activity() {
     // ---- layout ----
 
     private fun render() {
+        // This page is rebuilt rather than patched, so the offset is carried across: without it the
+        // owner comes back from a session to the header instead of to the card they were reading.
+        val restoreScroll = page?.scrollY ?: 0
         val plan = LegacyHomeGuide.plan(facts())
         val page = ui.page()
         val content = ui.pageContent()
@@ -175,6 +180,8 @@ class LegacyHomeActivity : Activity() {
         }
 
         setContentView(page)
+        this.page = page
+        page.post { page.scrollTo(0, restoreScroll) }
         renderedOnce = true
     }
 
