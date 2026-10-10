@@ -150,9 +150,7 @@ class LegacyHomeActivity : Activity() {
             val right = ui.column()
             right.addView(startCard(plan))
             right.addView(ui.space(ui.sectionGapDp))
-            right.addView(displayCard())
-            right.addView(ui.space(ui.sectionGapDp))
-            right.addView(soundCard())
+            right.addView(settingsCard())
             right.addView(ui.space(ui.sectionGapDp))
             right.addView(feedbackCard())
 
@@ -173,9 +171,7 @@ class LegacyHomeActivity : Activity() {
             content.addView(ui.space(ui.sectionGapDp))
             content.addView(startCard(plan))
             content.addView(ui.space(ui.sectionGapDp))
-            content.addView(displayCard())
-            content.addView(ui.space(ui.sectionGapDp))
-            content.addView(soundCard())
+            content.addView(settingsCard())
             content.addView(ui.space(ui.sectionGapDp))
             content.addView(diagnosticsCard())
             content.addView(ui.space(ui.sectionGapDp))
@@ -282,30 +278,69 @@ class LegacyHomeActivity : Activity() {
     }
 
     /**
-     * The one setting on this branch that changes how the picture feels. Nothing here can ask the
-     * decoder whether it sustains the rate — that probe is an API 21 call — so the owner decides and
-     * the session advertises it to the phone as `maxFPS` at handshake.
+     * The settings an owner may want changed, in one card: the picture rate, the two sound routes,
+     * and whether the session paints debug information over the picture. Three cards made this page
+     * read as a settings dump, and none of these decide whether a connection works.
+     *
+     * The frame rate cannot be probed here — asking the decoder whether it sustains the rate is an
+     * API 21 call — so the owner chooses it and the session advertises it to the phone as `maxFPS`
+     * at handshake.
      */
-    private fun displayCard(): View =
-        ui.section("画面帧率", "车机只是接收端，帧率是告诉 iPhone 每秒发多少张画面；改完要重新连接一次才生效。") { card ->
-            // One of the two is always highlighted: on a screen with no other feedback, a row set
-            // with nothing selected reads as a broken control rather than as an unstored value.
+    private fun settingsCard(): View =
+        ui.section("设置", "画面、声音和调试都在这里改；改完要重新连接一次才生效。") { card ->
+            card.addView(ui.eyebrow("画面帧率"))
+            // One of the two is always highlighted: on a screen with no other feedback, a control
+            // with nothing selected reads as broken rather than as an unstored value.
             val smoother = AirPlayPersistence.loadFps(this@LegacyHomeActivity) == FPS_SMOOTHER
+            val rates = ui.row().apply { setPadding(0, ui.dp(8), 0, 0) }
+            rates.addView(fpsButton("30 fps · 减轻负载", !smoother) { selectFps(FPS_LIGHTER) })
+            rates.addView(ui.gap(8))
+            rates.addView(fpsButton("60 fps · 更流畅", smoother) { selectFps(FPS_SMOOTHER) })
+            card.addView(rates)
             card.addView(
-                ui.choiceRow(
-                    "30 fps · 减轻负载",
-                    "老车机选这个。手机少发一半画面，卡顿和延迟都会明显减少。",
-                    !smoother,
-                ) { selectFps(FPS_LIGHTER) }
+                ui.hint("车机只是接收端，帧率是告诉 iPhone 每秒发多少张画面；老车机选 30。")
+                    .apply { setPadding(0, ui.dp(6), 0, 0) },
+            )
+
+            card.addView(ui.divider())
+            card.addView(ui.eyebrow("声音"))
+            card.addView(
+                ui.switchRow(
+                    "导航播报压低音乐",
+                    "语音提示时把音乐音量降低，说完自动恢复。",
+                    { AirPlayPersistence.loadNavigationDuckEnabled(this@LegacyHomeActivity) },
+                    { AirPlayPersistence.saveNavigationDuckEnabled(this@LegacyHomeActivity, it) },
+                )
             )
             card.addView(
-                ui.choiceRow(
-                    "60 fps · 更流畅",
-                    "性能够的车机才选：滑动和地图更跟手，扛不住时会变成卡屏。",
-                    smoother,
-                ) { selectFps(FPS_SMOOTHER) }
+                ui.switchRow(
+                    "通话用车机喇叭和麦克风",
+                    "用音响放对方声音、用车机麦克风收音；默认走 iPhone。",
+                    { AirPlayPersistence.loadCallOnCabinSpeaker(this@LegacyHomeActivity) },
+                    { AirPlayPersistence.saveCallOnCabinSpeaker(this@LegacyHomeActivity, it) },
+                )
+            )
+
+            card.addView(ui.divider())
+            card.addView(ui.eyebrow("调试"))
+            card.addView(
+                ui.switchRow(
+                    "连接时显示调试信息",
+                    "把运行日志、蓝牙状态和「重新连接 / 重启蓝牙」按钮叠在画面上；关闭后只投屏。运行记录两种情况下都会保存。",
+                    { AirPlayPersistence.loadLegacyDebugOverlayVisible(this@LegacyHomeActivity) },
+                    { AirPlayPersistence.saveLegacyDebugOverlayVisible(this@LegacyHomeActivity, it) },
+                )
             )
         }
+
+    private fun fpsButton(label: String, selected: Boolean, onClick: () -> Unit): View =
+        ui.button(label, primary = selected, heightDp = ui.modeButtonHeightDp, onClick = onClick)
+            .apply {
+                textSize = 15f
+                // Two half-width buttons rather than two full-width rows: the pair is one choice, and
+                // stacking it would push the sound switches off a short landscape panel.
+                layoutParams = LinearLayout.LayoutParams(0, -2, 1f)
+            }
 
     private fun selectFps(value: Int) {
         // Re-rendering rebuilds the whole page, which costs a slow unit real time, so a tap on the
@@ -313,26 +348,6 @@ class LegacyHomeActivity : Activity() {
         if (AirPlayPersistence.loadFps(this) == value) return
         AirPlayPersistence.saveFps(this, value)
         render()
-    }
-
-    private fun soundCard(): View = ui.section("声音", "只影响声音，不影响能不能连上；改完重新连接一次才生效。") { card ->
-        card.addView(
-            ui.switchRow(
-                "导航播报压低音乐",
-                "语音提示时把音乐音量降低，说完自动恢复。",
-                { AirPlayPersistence.loadNavigationDuckEnabled(this@LegacyHomeActivity) },
-                { AirPlayPersistence.saveNavigationDuckEnabled(this@LegacyHomeActivity, it) },
-            )
-        )
-        card.addView(ui.divider())
-        card.addView(
-            ui.switchRow(
-                "通话用车机喇叭和麦克风",
-                "用音响放对方声音、用车机麦克风收音；默认走 iPhone。",
-                { AirPlayPersistence.loadCallOnCabinSpeaker(this@LegacyHomeActivity) },
-                { AirPlayPersistence.saveCallOnCabinSpeaker(this@LegacyHomeActivity, it) },
-            )
-        )
     }
 
     private fun diagnosticsCard(): View =

@@ -77,8 +77,9 @@ class LegacyCarPlayActivity : Activity() {
     private lateinit var statusView: TextView
     private lateinit var btStatusView: TextView
     private lateinit var logView: TextView
+    private lateinit var debugControls: LinearLayout
     private lateinit var debugToggleButton: Button
-    private var debugOverlayVisible = true
+    private var debugOverlayVisible = false
     private lateinit var surfaceView: SurfaceView
     private lateinit var videoFrame: FrameLayout
     private var latestSurface: Surface? = null
@@ -133,7 +134,7 @@ class LegacyCarPlayActivity : Activity() {
         })
         surfaceView.setOnTouchListener { view, event -> onHostTouch(view, event) }
 
-        val controls = LinearLayout(this).apply {
+        debugControls = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             fun controlButton(label: String, action: () -> Unit) = Button(this@LegacyCarPlayActivity).apply {
                 text = label
@@ -149,7 +150,7 @@ class LegacyCarPlayActivity : Activity() {
             setBackgroundColor(Color.argb(140, 0, 0, 0))
             addView(statusView)
             addView(btStatusView)
-            addView(controls)
+            addView(debugControls)
             addView(logView)
         }
         val root = FrameLayout(this).apply {
@@ -225,6 +226,10 @@ class LegacyCarPlayActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
+        // The switch lives on the home screen now, so an owner can change it while this instance is
+        // still alive behind it; coming back has to pick that up rather than keep the old overlay.
+        debugOverlayVisible = AirPlayPersistence.loadLegacyDebugOverlayVisible(this)
+        applyDebugOverlayVisibility()
         if (controller == null && latestSurface != null && !startPendingSurface) {
             startPendingSurface = true
             mainHandler.post {
@@ -884,6 +889,9 @@ class LegacyCarPlayActivity : Activity() {
     }
 
     private fun updateBtStatus() {
+        // Reading the bond list is not free on these ROMs and it is polled every two seconds, so it
+        // only happens while that line is actually on screen.
+        if (!debugOverlayVisible) return
         runOnUiThread {
             if (!::btStatusView.isInitialized) return@runOnUiThread
             val adapter = runCatching { android.bluetooth.BluetoothAdapter.getDefaultAdapter() }.getOrNull()
@@ -904,15 +912,29 @@ class LegacyCarPlayActivity : Activity() {
         applyDebugOverlayVisibility()
     }
 
+    /**
+     * Debug mode owns the whole block: with it off the picture is all there is, because a wall of log
+     * lines and buttons is what the owner sees instead of CarPlay. The status line stays until a
+     * session is actually up — an otherwise black screen with no explanation is worse than one line
+     * of text — and it is set by [setStatus], which every state change goes through.
+     */
     private fun applyDebugOverlayVisibility() {
+        if (!::logView.isInitialized) return
         val visibility = if (debugOverlayVisible) View.VISIBLE else View.GONE
         logView.visibility = visibility
         btStatusView.visibility = visibility
+        debugControls.visibility = visibility
+        statusView.visibility =
+            if (debugOverlayVisible || !sessionActive) View.VISIBLE else View.GONE
         debugToggleButton.text = if (debugOverlayVisible) "隐藏调试" else "显示调试"
     }
 
     private fun setStatus(text: String) {
-        runOnUiThread { if (::statusView.isInitialized) statusView.text = text }
+        runOnUiThread {
+            if (!::statusView.isInitialized) return@runOnUiThread
+            statusView.text = text
+            applyDebugOverlayVisibility()
+        }
     }
 
     private fun appendLog(message: String) {

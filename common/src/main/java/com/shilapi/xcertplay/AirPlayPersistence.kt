@@ -125,9 +125,14 @@ object AirPlayPersistence {
             ).apply()
     }
 
+    /**
+     * Debug mode: whether the session paints its log lines, Bluetooth state and reconnect buttons
+     * over the picture. Off unless the owner asks for it — that block is what they see instead of
+     * CarPlay — and the file log is written either way, so a report can still be exported.
+     */
     fun loadLegacyDebugOverlayVisible(context: Context): Boolean =
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .getBoolean("legacy_debug_overlay_visible", true)
+            .getBoolean("legacy_debug_overlay_visible", false)
 
     fun saveLegacyDebugOverlayVisible(context: Context, visible: Boolean) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
