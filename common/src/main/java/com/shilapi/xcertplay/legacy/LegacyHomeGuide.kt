@@ -42,6 +42,8 @@ object LegacyHomeGuide {
         val sessionActive: Boolean,
         val sessionConnecting: Boolean,
         val lastFailure: String?,
+        /** What the USB stack can see right now; only the cable card renders it, the plan ignores it. */
+        val attachedUsbDevices: List<LegacyUsbSelfCheck.Device> = emptyList(),
     )
 
     data class Plan(

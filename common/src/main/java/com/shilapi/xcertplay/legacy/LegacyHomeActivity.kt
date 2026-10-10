@@ -3,8 +3,11 @@ package com.shilapi.xcertplay.legacy
 import android.app.Activity
 import android.app.AlertDialog
 import android.bluetooth.BluetoothAdapter
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.hardware.usb.UsbDevice
+import android.hardware.usb.UsbManager
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
@@ -79,7 +82,24 @@ class LegacyHomeActivity : Activity() {
             sessionActive = CarPlayBackgroundSession.active,
             sessionConnecting = CarPlayBackgroundSession.hasSession(),
             lastFailure = lastFailure,
+            attachedUsbDevices = attachedUsbDevices(),
         )
+    }
+
+    /**
+     * What is on the USB bus right now, and whether this app may open it. Reads only - a wired
+     * attempt still has to start a session - because the owner needs to know whether the cable route
+     * is even visible before being told to go and plug something in.
+     */
+    private fun attachedUsbDevices(): List<LegacyUsbSelfCheck.Device> {
+        val manager = runCatching {
+            getSystemService(Context.USB_SERVICE) as? UsbManager
+        }.getOrNull() ?: return emptyList()
+        return runCatching {
+            manager.deviceList.values.map { device: UsbDevice ->
+                LegacyUsbSelfCheck.Device(device.vendorId, device.productId, manager.hasPermission(device))
+            }.toList()
+        }.getOrDefault(emptyList())
     }
 
     /** The newest crash in the app's own log, if it happened today — the file is cumulative. */
@@ -130,7 +150,8 @@ class LegacyHomeActivity : Activity() {
         // This page is rebuilt rather than patched, so the offset is carried across: without it the
         // owner comes back from a session to the header instead of to the card they were reading.
         val restoreScroll = page?.scrollY ?: 0
-        val plan = LegacyHomeGuide.plan(facts())
+        val facts = facts()
+        val plan = LegacyHomeGuide.plan(facts)
         val page = ui.page()
         val content = ui.pageContent()
         page.addView(content)
@@ -143,7 +164,7 @@ class LegacyHomeActivity : Activity() {
             val left = ui.column()
             left.addView(statusCard(plan))
             left.addView(ui.space(ui.sectionGapDp))
-            left.addView(routeCard(plan))
+            left.addView(routeCard(plan, facts))
             left.addView(ui.space(ui.sectionGapDp))
             left.addView(diagnosticsCard())
 
@@ -167,7 +188,7 @@ class LegacyHomeActivity : Activity() {
             content.addView(ui.space(14))
             content.addView(statusCard(plan))
             content.addView(ui.space(ui.sectionGapDp))
-            content.addView(routeCard(plan))
+            content.addView(routeCard(plan, facts))
             content.addView(ui.space(ui.sectionGapDp))
             content.addView(startCard(plan))
             content.addView(ui.space(ui.sectionGapDp))
@@ -226,12 +247,18 @@ class LegacyHomeActivity : Activity() {
      * The two routes, kept out of the status card so that card is short enough to leave its own
      * action button on a 480-dp-tall landscape panel.
      */
-    private fun routeCard(plan: Plan): View {
+    private fun routeCard(plan: Plan, facts: Facts): View {
         val card = ui.card()
         // One route per line: side by side, these labels wrapped to three lines inside a half-width
         // button and the taller of the two made the card look broken.
         card.addView(
             modeButton("有线：USB 数据线", plan.wiredAvailable) { perform(Action.CONNECT_WIRED) },
+            LinearLayout.LayoutParams(-1, -2),
+        )
+        // Which half of "插了线没反应" this unit is in, said before the owner taps anything.
+        card.addView(
+            ui.hint(LegacyUsbSelfCheck.verdict(facts.hasUsbHost, facts.attachedUsbDevices))
+                .apply { setPadding(0, ui.dp(6), 0, 0) },
             LinearLayout.LayoutParams(-1, -2),
         )
         card.addView(ui.space(8))
@@ -241,11 +268,9 @@ class LegacyHomeActivity : Activity() {
             },
             LinearLayout.LayoutParams(-1, -2),
         )
-        val unavailable = when {
-            !plan.wiredAvailable -> "本机没有 USB 主机功能，数据线不会被识别。"
-            !plan.wirelessAvailable -> "本机没有蓝牙硬件能力，无线无法进行。"
-            else -> null
-        }
+        // The cable's equivalent of this line is the self-check above it, which names what is missing
+        // instead of only saying 不可用.
+        val unavailable = if (!plan.wirelessAvailable) "本机没有蓝牙硬件能力，无线无法进行。" else null
         unavailable?.let {
             card.addView(ui.hint(it).apply { setPadding(0, ui.dp(8), 0, 0) })
         }
