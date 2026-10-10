@@ -19,7 +19,7 @@ android {
         // (the community H52 build targets Android 4.3 = minSdk 18).
         minSdk = 18
         targetSdk = 37
-        versionCode = 31
+        versionCode = 32
         versionName = "0.2.12"
         // The dex count needs legacy multidex below API 21.
         multiDexEnabled = true
