@@ -69,6 +69,7 @@ class IphoneUsbHost(
     private val usbManager: UsbManager,
     private val matcher: IphoneUsbMatcher,
     private val permissionAction: String = "${context.packageName}.IPHONE_USB_PERMISSION",
+    private val onDiagnostic: (String) -> Unit = {},
 ) {
     private val appContext = context.applicationContext
 
@@ -268,6 +269,16 @@ class IphoneUsbHost(
             }
             val endpoints = IphoneCarPlayConfiguration.usbMuxEndpoints(usbMux)
                 ?: throw IphoneUsbException.Protocol("USBMUX interface exposes no bulk endpoint pair")
+            // Which enumeration route a real unit took is the one datum a field log cannot be
+            // reconstructed without: pre-21 never sees a UsbConfiguration at all.
+            runCatching {
+                onDiagnostic(
+                    "USBMUX enumeration route=" +
+                        (if (Build.VERSION.SDK_INT >= 21) "usb-configuration" else "device-interfaces") +
+                        " api=${Build.VERSION.SDK_INT} vendor=0x${device.vendorId.toString(16)}" +
+                        " product=0x${device.productId.toString(16)} iface=${usbMux.id}",
+                )
+            }
             Log.i(
                 IphoneCarPlayConfiguration.TAG,
                 "usbmux iface=${usbMux.id} alt=${usbMux.compatAlternateSetting() ?: "n/a"} " +
@@ -280,7 +291,7 @@ class IphoneUsbHost(
                 throw IphoneUsbException.DeviceUnavailable("Android could not claim USBMUX interface 1")
             }
             claimedInterface = usbMux
-            return Iap2UsbSession(connection, endpoints.first, endpoints.second)
+            return Iap2UsbSession(connection, endpoints.first, endpoints.second, onDiagnostic)
         } catch (error: Throwable) {
             if (claimedInterface != null) connection.releaseInterface(claimedInterface)
             connection.close()
@@ -345,6 +356,7 @@ class Iap2UsbSession internal constructor(
     private val connection: UsbDeviceConnection,
     private val outEndpoint: UsbEndpoint,
     private val inEndpoint: UsbEndpoint,
+    private val onDiagnostic: (String) -> Unit = {},
 ) : Closeable {
     private val stateLock = Any()
     private val readLock = Any()
@@ -352,6 +364,7 @@ class Iap2UsbSession internal constructor(
     private var closed = false
     private var failure: IphoneUsbException? = null
     private var pendingRead: UsbRequest? = null
+    private var loggedReadPath = false
     private val bulkReadBuffer = ByteArray(USBMUX_READ_CHUNK_BYTES)
 
     fun write(data: ByteArray, timeoutMillis: Int) = synchronized(writeLock) {
@@ -370,7 +383,10 @@ class Iap2UsbSession internal constructor(
     fun read(timeoutMillis: Long): ByteArray? = synchronized(readLock) {
         checkOpen()
         require(timeoutMillis > 0) { "timeoutMillis must be positive" }
-        if (Build.VERSION.SDK_INT < 26) return@synchronized readBulkCompat(timeoutMillis)
+        if (Build.VERSION.SDK_INT < 26) {
+            logReadPathOnce("bulk-transfer", minOf(bulkReadBuffer.size, USBFS_BULK_URB_CEILING_BYTES))
+            return@synchronized readBulkCompat(timeoutMillis)
+        }
         val request = UsbRequest()
         var initialized = false
         try {
@@ -389,6 +405,7 @@ class Iap2UsbSession internal constructor(
                 // 16 KiB usbfs ceiling, so a large read is fatal there rather than merely short.
                 if (Build.VERSION.SDK_INT < 28) USBFS_BULK_URB_CEILING_BYTES else USBMUX_READ_CHUNK_BYTES,
             )
+            logReadPathOnce("async-request", buffer.capacity())
             if (!request.queue(buffer)) {
                 throw IphoneUsbException.DeviceUnavailable(
                     "Android could not queue USBMUX read request (${requestDiagnostics(timeoutMillis, buffer.capacity())})",
@@ -482,6 +499,18 @@ class Iap2UsbSession internal constructor(
         return error
     }
 
+    /** Once per pipe: which read shape this platform takes and how large a submit it issues. */
+    private fun logReadPathOnce(path: String, submitBytes: Int) {
+        if (loggedReadPath) return
+        loggedReadPath = true
+        runCatching {
+            onDiagnostic(
+                "USBMUX read path=$path api=${Build.VERSION.SDK_INT} " +
+                    "endpoint=${describeUsbEndpoint(inEndpoint)} submitBytes=$submitBytes",
+            )
+        }
+    }
+
     private fun requestDiagnostics(timeoutMillis: Long, bufferBytes: Int? = null): String = buildString {
         append("api=").append(Build.VERSION.SDK_INT)
         append(" endpoint=").append(describeUsbEndpoint(inEndpoint))
@@ -495,7 +524,7 @@ class Iap2UsbSession internal constructor(
     }
 }
 
-private fun describeUsbEndpoint(endpoint: UsbEndpoint): String =
+internal fun describeUsbEndpoint(endpoint: UsbEndpoint): String =
     "0x${endpoint.address.toString(16)}(direction=${endpoint.direction}," +
         "type=${endpoint.type},maxPacket=${endpoint.maxPacketSize})"
 

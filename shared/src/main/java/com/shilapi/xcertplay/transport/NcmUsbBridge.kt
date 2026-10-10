@@ -28,6 +28,7 @@ class NcmUsbBridge internal constructor(
     private val statusEndpoint: UsbEndpoint?,
     private val claimedInterfaces: List<UsbInterface>,
     descriptorHostMac: ByteArray?,
+    private val onDiagnostic: (String) -> Unit = {},
 ) : Closeable {
     private val descriptorMac = descriptorHostMac?.copyOf()
     val hostMac: ByteArray? get() = descriptorMac?.copyOf()
@@ -59,6 +60,7 @@ class NcmUsbBridge internal constructor(
     )
     private var readRequest: UsbRequest? = null
     private var readQueued = false
+    private var loggedReadPath = false
     private val statusRunning = AtomicBoolean(statusEndpoint != null)
     private val statusThread = statusEndpoint?.let { endpoint ->
         Thread({ drainStatus(endpoint) }, "ncm-status-in").apply {
@@ -245,10 +247,12 @@ class NcmUsbBridge internal constructor(
             // queue(ByteBuffer)/requestWait(timeout) are API 26; Android 6 polls synchronously.
             // A null means "nothing this round" — the CarPlay TCP stream and the USBMUX keepalive
             // write path own authoritative error detection, exactly as on the async path.
+            logReadPathOnce("bulk-transfer", BULK_READ_BYTES)
             return connection.bulkTransfer(
                 inEndpoint, readBuffer, BULK_READ_BYTES, timeoutMillis.coerceAtLeast(1).toInt(),
             ).takeIf { it > 0 }
         }
+        logReadPathOnce("async-request", directReadBuffer.capacity())
         val request = try {
             // Publish and queue atomically with close(), so detach cannot miss a new request.
             synchronized(stateLock) {
@@ -292,6 +296,18 @@ class NcmUsbBridge internal constructor(
         }
     }
 
+    /** Once per bridge: which read shape this platform takes and how large a submit it issues. */
+    private fun logReadPathOnce(path: String, submitBytes: Int) {
+        if (loggedReadPath) return
+        loggedReadPath = true
+        runCatching {
+            onDiagnostic(
+                "NCM read path=$path api=${Build.VERSION.SDK_INT} " +
+                    "endpoint=${describeUsbEndpoint(inEndpoint)} submitBytes=$submitBytes",
+            )
+        }
+    }
+
     private fun failSession(message: String, cause: Throwable? = null): IphoneUsbException.DeviceUnavailable {
         val error = IphoneUsbException.DeviceUnavailable(message, cause)
         synchronized(stateLock) {
@@ -329,7 +345,11 @@ class NcmUsbBridge internal constructor(
         private const val NANOS_PER_MILLISECOND = 1_000_000L
 
         /** Claims and activates the NCM control/data interfaces; owns the connection on success. */
-        fun open(connection: UsbDeviceConnection, function: NcmFunctionDiscovery.NcmFunction): NcmUsbBridge {
+        fun open(
+            connection: UsbDeviceConnection,
+            function: NcmFunctionDiscovery.NcmFunction,
+            onDiagnostic: (String) -> Unit = {},
+        ): NcmUsbBridge {
             val claimed = ArrayList<UsbInterface>(2)
             try {
                 val descriptorHostMac = readNcmHostMac(connection, function.control.id)
@@ -384,6 +404,14 @@ class NcmUsbBridge internal constructor(
                     IphoneCarPlayConfiguration.TAG,
                     "setInterface iface=${function.data.id}/$dataAlternateSetting ok=$altSelected",
                 )
+                runCatching {
+                    onDiagnostic(
+                        "NCM activation route=" +
+                            (if (Build.VERSION.SDK_INT >= 21) "setInterface" else "control-transfer") +
+                            " api=${Build.VERSION.SDK_INT} iface=${function.data.id}" +
+                            " alt=$dataAlternateSetting ok=$altSelected",
+                    )
+                }
                 if (!altSelected) {
                     throw IphoneUsbException.DeviceUnavailable(
                         "Android could not select the NCM data alternate setting",
@@ -400,6 +428,7 @@ class NcmUsbBridge internal constructor(
                     function.statusIn,
                     claimed,
                     descriptorHostMac,
+                    onDiagnostic,
                 )
             } catch (error: Throwable) {
                 for (usbInterface in claimed.asReversed()) {

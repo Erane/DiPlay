@@ -119,11 +119,14 @@ class UsbAutoConfirmService : AccessibilityService() {
             return false
         }
 
-        fun openSettings(context: Context) {
+        // Some head units ship no accessibility settings activity at all, so the jump can only
+        // be reported: the caller keeps the toggle usable when it fails.
+        fun openSettings(context: Context): Boolean = runCatching {
             val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).apply {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
             context.startActivity(intent)
-        }
+            true
+        }.getOrDefault(false)
     }
 }

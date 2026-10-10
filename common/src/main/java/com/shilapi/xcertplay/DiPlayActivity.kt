@@ -496,7 +496,9 @@ class DiPlayActivity : ComponentActivity() {
                 getString(R.string.usb_auto_confirm_subtitle),
                 UsbAutoConfirmService.isEnabled(this),
             ) {
-                UsbAutoConfirmService.openSettings(this)
+                if (!UsbAutoConfirmService.openSettings(this)) {
+                    toast(getString(R.string.usb_auto_confirm_settings_unavailable))
+                }
             }
             card.addView(button("${getString(R.string.choose_iphone_prefix)}${DiPlayPreferences.phoneName(this)}", false) { choosePhone() }, matchButton(12, 60))
         }

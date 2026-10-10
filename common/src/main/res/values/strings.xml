@@ -122,6 +122,7 @@
     <string name="usb_auto_confirm_title">Auto-confirm USB permission</string>
     <string name="usb_auto_confirm_subtitle">Automatically accept the Android USB permission prompt when an iPhone is connected via cable (requires Accessibility Service)</string>
     <string name="usb_auto_confirm_desc">Automatically checks Always allow and confirms the Android USB accessory prompt for CarPlay</string>
+    <string name="usb_auto_confirm_settings_unavailable">This device has no accessibility settings screen, so enable the service manually or by adb</string>
     <string name="automatic_map_enabled_open_the_cluster_map_card_or_select">Automatic map enabled. Open the cluster map card or select Map theme.</string>
     <string name="automatic_map_setup_adb">Automatic map setup · ADB</string>
     <string name="availability_depends_on_your_head_unit_s_startup_settings">Availability depends on your head unit’s startup settings.</string>
