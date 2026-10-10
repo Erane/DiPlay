@@ -38,7 +38,6 @@ import com.shilapi.xcertplay.DiPlayProbeActivity
 import com.shilapi.xcertplay.DiPlaySessionService
 import com.shilapi.xcertplay.airplay.AirPlayConfig
 import com.shilapi.xcertplay.airplay.AirPlayDisplayConfig
-import com.shilapi.xcertplay.airplay.AirPlayDisplaySettings
 import com.shilapi.xcertplay.airplay.AirPlayIcon
 import com.shilapi.xcertplay.airplay.AirPlaySession
 import com.shilapi.xcertplay.airplay.AirPlaySessionListener
@@ -525,7 +524,7 @@ class LegacyCarPlayActivity : Activity() {
             heightPixels = height,
             widthPhysicalMm = (width / resources.displayMetrics.xdpi * 25.4f).toInt().coerceAtLeast(1),
             heightPhysicalMm = (height / resources.displayMetrics.ydpi * 25.4f).toInt().coerceAtLeast(1),
-            fps = AirPlayDisplaySettings.DEFAULT_FPS,
+            fps = AirPlayPersistence.loadFps(this),
             primaryInputDevice = 1,
         )
         // Probe ON the hotspot address: a wildcard probe misses services bound to the
