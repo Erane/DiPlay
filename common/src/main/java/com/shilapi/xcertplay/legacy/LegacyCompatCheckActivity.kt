@@ -1,7 +1,6 @@
 package com.shilapi.xcertplay.legacy
 
 import android.app.Activity
-import android.graphics.Color
 import android.os.Build
 import android.os.Bundle
 import android.view.Gravity
@@ -9,23 +8,24 @@ import android.view.View
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.ScrollView
-import android.widget.TextView
 
 /**
- * Compatibility self-test screen for pre-21 car units: two buttons, one result area, and nothing on
- * the home screen but the entry to it.
+ * Compatibility self-test screen for pre-21 car units.
  *
  * The two questions an owner of an old head unit actually has are "what Android is this really"
  * (car ROMs rewrite the version the settings page shows) and "is its Bluetooth crippled to
- * audio-only, which would decide whether wireless CarPlay is possible at all". Both answers are
- * long and full of jargon, so they live here rather than on the home screen, and each result is
- * written incrementally while the check runs because the Bluetooth part blocks for tens of seconds.
+ * audio-only, which would decide whether wireless CarPlay is possible at all". Each question is a
+ * card that says what it will measure before it is tapped, and the answer streams into one result
+ * area whose lines are coloured by outcome, because a wall of grey text on a car screen at arm's
+ * length is unreadable. The Bluetooth part blocks for tens of seconds, so its lines arrive as the
+ * probe finishes each check rather than at the end.
  */
 class LegacyCompatCheckActivity : Activity() {
-    private lateinit var resultView: TextView
-    private lateinit var scrollView: ScrollView
+    private val ui by lazy { LegacyStyle(this) }
+    private lateinit var resultArea: LinearLayout
+    private lateinit var resultCard: View
+    private lateinit var page: ScrollView
     private lateinit var bluetoothButton: Button
-    private val lines = StringBuilder()
 
     @Volatile private var alive = true
     @Volatile private var bluetoothRunning = false
@@ -35,49 +35,88 @@ class LegacyCompatCheckActivity : Activity() {
     private var followTail = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        if (Build.VERSION.SDK_INT < 21) setTheme(android.R.style.Theme_Holo_Light_NoActionBar)
+        ui.applyWindowTheme(this)
         super.onCreate(savedInstanceState)
 
-        val pad = (resources.displayMetrics.density * 12).toInt()
-        val root = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(pad, pad, pad, pad)
-            setBackgroundColor(Color.rgb(12, 17, 27))
-        }
+        page = ui.page()
+        val content = ui.pageContent()
+        page.addView(content)
 
-        root.addView(
-            TextView(this).apply {
-                text = "兼容性自检"
-                textSize = 22f
-                setTextColor(Color.WHITE)
-                gravity = Gravity.CENTER
-                setPadding(0, 0, 0, pad)
-            },
+        val header = ui.row(Gravity.CENTER_VERTICAL)
+        header.addView(
+            ui.button("返回", false, heightDp = 44) { finish() }.apply { minWidth = ui.dp(76) },
+            LinearLayout.LayoutParams(-2, -2),
         )
-        root.addView(
-            Button(this).apply {
-                text = "检测真实安卓版本"
-                setOnClickListener { showVersion() }
+        val names = ui.column().apply { setPadding(ui.dp(10), 0, 0, 0) }
+        names.addView(ui.title("兼容性自检", 21))
+        if (!ui.short) {
+            names.addView(ui.hint("结果只写在屏幕上，不会外发；要发给别人请用首页的「导出诊断日志」"))
+        }
+        header.addView(names, LinearLayout.LayoutParams(0, -2, 1f))
+        content.addView(header)
+        content.addView(ui.space(ui.sectionGapDp + 2))
+
+        val versionCard = ui.section(
+            "这台车机的真实安卓版本",
+            if (ui.short) {
+                "设置页显示的版本可能是 ROM 改出来的假号。"
+            } else {
+                "不少车机设置页显示的版本是 ROM 改出来的假号。这里以运行时 API 等级为准。"
             },
-        )
-        bluetoothButton = Button(this).apply {
-            text = "检测蓝牙能力"
-            setOnClickListener { runBluetoothCheck() }
+        ) { card ->
+            card.addView(
+                ui.button("检测真实安卓版本") { showVersion() },
+                ui.buttonParams(),
+            )
         }
-        root.addView(bluetoothButton)
+        val bluetoothCard = ui.section(
+            "蓝牙能力（决定无线能否走通）",
+            if (ui.short) {
+                "检查适配器、配对、服务记录和蓝牙数据串口。"
+            } else {
+                "逐项检查适配器、配对、服务记录和蓝牙数据串口，并试着连上你的 iPhone。"
+            },
+        ) { card ->
+            bluetoothButton = ui.button("检测蓝牙能力") { runBluetoothCheck() }
+            card.addView(bluetoothButton, ui.buttonParams())
+            card.addView(
+                ui.hint(
+                    if (ui.short) {
+                        "耗时约十几秒，期间车机音频可能短暂中断。"
+                    } else {
+                        "耗时约十几秒，期间车机音频可能短暂中断。请让 iPhone 解锁并留在车上；" +
+                            "正在连着 CarPlay 时请先断开再测。"
+                    }
+                ).apply { setPadding(0, ui.dp(10), 0, 0) }
+            )
+        }
+        resultArea = ui.column()
+        resultCard = ui.section("检测结果", null) { card ->
+            card.addView(resultArea)
+            card.addView(
+                ui.hint("选一项开始检测。").apply { tag = EMPTY_TAG },
+            )
+        }
 
-        resultView = TextView(this).apply {
-            textSize = 13f
-            setTextColor(Color.rgb(214, 226, 245))
-            setPadding(0, pad, 0, pad * 3)
+        if (ui.wide) {
+            // On a landscape panel the two checks are the short things and the report is the long
+            // one, so the controls sit side by side above a full-width result: the report's lines
+            // read better wide, and neither control card has to share a narrow column.
+            val controls = ui.row(Gravity.TOP)
+            controls.addView(versionCard, LinearLayout.LayoutParams(0, -2, 1f))
+            controls.addView(ui.gap(ui.sectionGapDp))
+            controls.addView(bluetoothCard, LinearLayout.LayoutParams(0, -2, 1f))
+            content.addView(controls)
+            content.addView(ui.space(ui.sectionGapDp))
+            content.addView(resultCard)
+        } else {
+            content.addView(versionCard)
+            content.addView(ui.space(ui.sectionGapDp))
+            content.addView(bluetoothCard)
+            content.addView(ui.space(ui.sectionGapDp))
+            content.addView(resultCard)
         }
-        scrollView = ScrollView(this).apply {
-            addView(resultView)
-        }
-        root.addView(scrollView, LinearLayout.LayoutParams(-1, 0, 1f))
-        setContentView(root)
-
-        appendLine("选一项开始检测，结果只显示在本页。")
+        setContentView(page)
     }
 
     private fun showVersion() {
@@ -94,6 +133,22 @@ class LegacyCompatCheckActivity : Activity() {
         appendLine("应用: $packageName ${LegacyDiagnostics.appVersion(this)}")
         appendLine()
         appendLine("提示：判断能用哪些功能以「运行时 API 等级」为准，设置页写的版本号可以造假。")
+        revealResult()
+    }
+
+    /**
+     * Bring the report to the owner. In portrait the report is the last card and its first line is
+     * the answer, so the top of the page is the right place; on a landscape panel the report starts
+     * below the two control cards, so scrolling there would hide what was just written.
+     */
+    private fun revealResult() {
+        page.post {
+            if (ui.wide) {
+                page.smoothScrollTo(0, maxOf(0, resultCard.top - ui.dp(8)))
+            } else {
+                page.fullScroll(View.FOCUS_UP)
+            }
+        }
     }
 
     private fun runBluetoothCheck() {
@@ -136,8 +191,10 @@ class LegacyCompatCheckActivity : Activity() {
                 }
                 runOnUiThread {
                     bluetoothRunning = false
-                    bluetoothButton.isEnabled = true
-                    bluetoothButton.text = "重新检测蓝牙能力"
+                    if (alive) {
+                        bluetoothButton.isEnabled = true
+                        bluetoothButton.text = "重新检测蓝牙能力"
+                    }
                 }
             },
             "legacy-bt-capability",
@@ -148,7 +205,6 @@ class LegacyCompatCheckActivity : Activity() {
     }
 
     private fun publish(check: BluetoothCapabilityProbe.Check) {
-        if (!alive) return
         val mark = when (check.status) {
             BluetoothCapabilityProbe.Status.PASS -> "✔"
             BluetoothCapabilityProbe.Status.WARN -> "⚠"
@@ -160,28 +216,45 @@ class LegacyCompatCheckActivity : Activity() {
     }
 
     private fun clear() {
-        lines.setLength(0)
-        flush()
+        runOnUiThread {
+            resultArea.removeAllViews()
+            resultArea.findViewWithTag<android.widget.TextView>(EMPTY_TAG)?.text = "检测中…"
+        }
     }
 
     private fun appendLine(text: String = "") {
-        lines.appendLine(text)
-        flush()
-    }
-
-    private fun flush() {
-        val tail = followTail
+        if (!alive) return
         runOnUiThread {
             if (!alive) return@runOnUiThread
-            resultView.text = lines.toString()
-            scrollView.post {
-                scrollView.fullScroll(if (tail) View.FOCUS_DOWN else View.FOCUS_UP)
-            }
+            resultArea.findViewWithTag<android.widget.TextView>(EMPTY_TAG)?.visibility = View.GONE
+            resultArea.addView(colouredLine(text))
+            if (followTail) page.post { page.fullScroll(View.FOCUS_DOWN) }
+        }
+    }
+
+    /** An outcome per line colour, so the eye lands on what failed instead of reading every row. */
+    private fun colouredLine(text: String): View {
+        val color = when {
+            text.startsWith("====") -> LegacyStyle.ACCENT
+            text.startsWith("结论") -> LegacyStyle.TEXT
+            text.startsWith("✔") -> LegacyStyle.SUCCESS
+            text.startsWith("✖") -> LegacyStyle.WARNING
+            text.startsWith("⚠") -> LegacyStyle.WARNING
+            text.isBlank() -> LegacyStyle.MUTED
+            else -> LegacyStyle.MUTED
+        }
+        return ui.body(text, if (text.startsWith("结论")) 15 else 13).apply {
+            setTextColor(color)
+            setPadding(0, ui.dp(2), 0, ui.dp(2))
         }
     }
 
     override fun onDestroy() {
         alive = false
         super.onDestroy()
+    }
+
+    private companion object {
+        const val EMPTY_TAG = "empty-hint"
     }
 }
